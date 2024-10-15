@@ -8,17 +8,20 @@ from nicegui import run, ui
 from PIL import Image
 import math
 from scipy.integrate import quad
+from contextlib import contextmanager
 
 ui.add_head_html(
     """
     <script>
     function emitSize() {
-        emitEvent('resize', {
-            width: document.body.offsetWidth,
-            height: document.body.offsetHeight,
-        });
+        const mainElement = document.querySelector('main');
+        if (mainElement) {
+            emitEvent('resize', {
+                width: mainElement.offsetWidth,
+                height: mainElement.offsetHeight,
+            });
+        }
     }
-
     window.onload = emitSize; 
     window.onresize = emitSize;
     </script>
@@ -225,10 +228,12 @@ def compute(img, q):
 
 
 def handle_upload(e):
-    global input
+    global input_img
 
     ui.notify(f"Uploaded {e.name}")
-    input = cv2.imdecode(np.frombuffer(e.content.read(), np.uint8), cv2.IMREAD_COLOR)
+    input_img = cv2.imdecode(
+        np.frombuffer(e.content.read(), np.uint8), cv2.IMREAD_COLOR
+    )
 
 
 rows = [
@@ -238,26 +243,52 @@ rows = [
 ]
 
 
-async def handle_compute():
-    width, height, volume = await run.cpu_bound(compute, input, queue)
+@contextmanager
+def disable(button: ui.button):
+    button.disable()
+    try:
+        yield
+    finally:
+        button.enable()
 
-    rows[0]["value"] = width
-    rows[1]["value"] = height
-    rows[2]["value"] = volume
 
-    ui.table(
-        columns=[
-            {
-                "name": "parameter",
-                "label": "Parameter",
-                "field": "parameter",
-                "align": "left",
-            },
-            {"name": "value", "label": "Value", "field": "value"},
-        ],
-        rows=rows,
-        row_key="parameter",
-    )
+async def handle_compute(button: ui.button):
+    global table
+    try:
+        input_img
+    except NameError:
+        ui.notify("The image file must be uploaded", type="negative")
+        return
+    else:
+        origin_detail_status = True
+        if not details_switch.value:
+            origin_detail_status = False
+            details_switch.set_value(True)
+
+        with disable(button):
+            reset_button.disable()
+            width, height, volume = await run.cpu_bound(compute, input_img, queue)
+
+            rows[0]["value"] = width
+            rows[1]["value"] = height
+            rows[2]["value"] = volume
+
+            table = ui.table(
+                columns=[
+                    {
+                        "name": "parameter",
+                        "label": "Parameter",
+                        "field": "parameter",
+                        "align": "left",
+                    },
+                    {"name": "value", "label": "Value", "field": "value"},
+                ],
+                rows=rows,
+                row_key="parameter",
+            )
+
+        details_switch.set_value(origin_detail_status)
+        reset_button.enable()
 
 
 def clear_all():
@@ -267,8 +298,19 @@ def clear_all():
     """
     ui.navigate.reload()
     stepper.set_value("Gray")
-    [i.delete() for i in stepper_imgs]
+    try:
+        [i.delete() for i in stepper_imgs]
+        table.delete()
+    except (ValueError, NameError):
+        pass
 
+
+with ui.header(elevated=True).style("background-color: #3874c8").classes(
+    "items-center justify-between"
+):
+    ui.label("Pineapple Hub")
+    ui.space()
+    ui.link("🚨", "https://git.bigdick.live/ysun/pineapplehub/issues/new")
 
 with ui.left_drawer(top_corner=True, bottom_corner=True):
     ui.label("Please pick the pineapple image:")
@@ -276,8 +318,8 @@ with ui.left_drawer(top_corner=True, bottom_corner=True):
 
     details_switch = ui.switch("Show the details", value=True)
 
-    ui.button("Compute", on_click=handle_compute)
-    ui.button("Reset", on_click=clear_all)
+    ui.button("Compute", on_click=lambda e: handle_compute(e.sender))
+    reset_button = ui.button("Reset", on_click=clear_all)
 
 with ui.stepper().props("vertical header-nav").bind_visibility_from(
     details_switch, "value"
@@ -310,4 +352,4 @@ ui.timer(1, callback=lambda: render_steppers(queue) if not queue.empty() else No
 with ui.footer():
     ui.label("CJ © 2024")
 
-ui.run(title="Smart Pineapple")
+ui.run(title="PineappleHub", favicon="🍍")
