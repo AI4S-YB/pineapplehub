@@ -1,5 +1,11 @@
 ## CHANGELOG
 
+### v1.0.1
+
+#### ✨ Enhancements
+
+- Now if user forget press <kbd>RESET</kbd>, it will pop up a dialog to confirm before resetting ([916c1d4d35](https://git.bigdick.live/ysun/pineapplehub/commit/916c1d4d3574d3bc07932895c75c24044de1738a))
+
 ### v1.0.0
 
 #### ✨ Enhancements
