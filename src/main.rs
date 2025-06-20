@@ -1,83 +1,211 @@
+mod error;
+mod intermediate;
 mod ui;
+mod upload;
 
-use crate::ui::show_res;
-
-use ::image::{DynamicImage, imageops::blur};
-use iced::{
-    Element, Length, Task,
-    widget::{button, column, container, horizontal_space, image, row, scrollable},
+use crate::{
+    intermediate::{EncodedImage, Intermediate, Step},
+    ui::{preview::Preview, viewer::Viewer},
+    upload::{State, Update, Upload},
 };
-use rfd::AsyncFileDialog;
 
-type EncodedImage = Vec<u8>;
+use ::image::{DynamicImage, EncodableLayout, imageops};
+use iced::{
+    Element, Length, Subscription, Task,
+    advanced::image::Bytes,
+    time::Instant,
+    widget::{button, column, container, grid, horizontal_space, image, row, scrollable, stack},
+    window,
+};
 
+#[non_exhaustive]
 #[derive(Debug, Clone)]
 enum Message {
-    ChooseFile,
-    FileUploaded(EncodedImage),
+    Upload,
+    UploadUpdated(Update),
     Process,
+    ThumbnailHovered(Step, bool),
+    Open(Step),
+    Close,
+    Animate,
 }
-
-#[derive(Default)]
 struct Img {
-    original: EncodedImage,
-    gray: DynamicImage,
-    blur: DynamicImage,
+    upload: Upload,
+    origin: Option<Intermediate>,
+    now: Instant,
+    viewer: Viewer,
+    intermediates: Vec<Intermediate>,
 }
 
 impl Img {
-    fn update(&mut self, message: Message) -> Task<Message> {
+    fn new() -> Self {
+        Self {
+            upload: Upload::new(),
+            origin: None,
+            now: Instant::now(),
+            viewer: Viewer::new(),
+            intermediates: Vec::new(),
+        }
+    }
+
+    pub fn subscription(&self) -> Subscription<Message> {
+        let is_animating = self
+            .intermediates
+            .iter()
+            .any(|i| i.preview.is_animating(self.now))
+            || self.viewer.is_animating(self.now);
+
+        if is_animating {
+            window::frames().map(|_| Message::Animate)
+        } else {
+            Subscription::none()
+        }
+    }
+
+    fn update(&mut self, message: Message, now: Instant) -> Task<Message> {
+        self.now = now;
+
         match message {
-            Message::ChooseFile => Task::perform(upload_img(), Message::FileUploaded),
-            Message::FileUploaded(img) => {
-                self.original = img;
+            Message::Upload => {
+                let task = self.upload.start();
+
+                task.map(Message::UploadUpdated)
+            }
+            Message::UploadUpdated(update) => {
+                self.upload.update(update);
 
                 Task::none()
             }
             Message::Process => {
-                let gray = ::image::load_from_memory(&self.original)
-                    .unwrap()
-                    .to_luma8();
-                self.gray = DynamicImage::ImageLuma8(gray);
-                // https://docs.rs/image/0.25.6/src/image/imageops/sample.rs.html#1004
-                self.blur = DynamicImage::ImageLuma8(blur(&self.gray.to_luma8(), 7.0));
+                if let State::Finished(image) = &self.upload.state {
+                    let image = image.image.clone().unwrap();
+                    let preview = Preview::loading(
+                        blurhash::decode(
+                            &blurhash::encode(
+                                4,
+                                3,
+                                image.width(),
+                                image.height(),
+                                image.to_rgba8().as_bytes(),
+                            )
+                            .unwrap(),
+                            50,
+                            50,
+                            1.0,
+                        )
+                        .unwrap(),
+                        now,
+                    );
+                    self.intermediates.push(Intermediate {
+                        current_step: Step::Gray,
+                        preview,
+                        image: None,
+                    });
+                    let res = DynamicImage::ImageLuma8(image.to_luma8());
+
+                    let thumbnail = res.resize(res.width(), res.height(), imageops::Lanczos3);
+
+                    let preview = Preview::ready(thumbnail, now);
+
+                    if let Some(last) = self.intermediates.last_mut() {
+                        *last = Intermediate {
+                            current_step: Step::Gray,
+                            preview,
+                            image: Some(res),
+                        }
+                    }
+                }
 
                 Task::none()
             }
+            Message::ThumbnailHovered(step, is_hovered) => {
+                if let Some(i) = self
+                    .intermediates
+                    .iter_mut()
+                    .find(|i| i.current_step == step)
+                {
+                    i.preview.toggle_zoom(is_hovered, self.now);
+                }
+
+                Task::none()
+            }
+            Message::Open(step) => {
+                if let Some(intermediate) = self
+                    .intermediates
+                    .iter()
+                    .find(|i| i.current_step == step)
+                    .cloned()
+                {
+                    self.viewer.show(intermediate.image.unwrap(), self.now);
+                }
+
+                Task::none()
+            }
+            Message::Close => {
+                self.viewer.close(self.now);
+
+                Task::none()
+            }
+            Message::Animate => Task::none(),
         }
     }
 
     fn view(&self) -> Element<Message> {
-        container(row![
+        let content = container(row![
             column![
-                button("Choose the image").on_press(Message::ChooseFile),
-                image(image::Handle::from_bytes(self.original.clone())),
+                button("Choose the image").on_press(Message::Upload),
+                self.upload.view(),
+                if let Some(img) = &self.origin {
+                    let img = img.image.as_ref().unwrap().to_rgba8();
+                    container(image(image::Handle::from_rgba(
+                        img.width(),
+                        img.height(),
+                        Bytes::from(img.into_raw()),
+                    )))
+                } else {
+                    container(horizontal_space()).style(container::dark)
+                },
                 button("Do it!").on_press(Message::Process),
             ]
             .spacing(10)
             .width(Length::FillPortion(2)),
-            scrollable(column![
-                show_res("Gray", &self.gray),
-                horizontal_space(),
-                show_res("Blur", &self.gray),
-            ])
+            scrollable(column![grid(
+                self.intermediates.iter().map(|i| i.card(self.now))
+            )])
             .width(Length::FillPortion(8))
-        ])
-        .into()
+        ]);
+
+        let viewer = self.viewer.view(self.now);
+
+        stack![content, viewer].into()
     }
 }
 
-async fn upload_img() -> EncodedImage {
-    let file = AsyncFileDialog::new().pick_file().await;
+// async fn upload_img() -> Result<Intermediate, Error> {
+//     let file = AsyncFileDialog::new().pick_file().await;
 
-    file.unwrap().read().await
-}
+//     let image = unsafe {
+//         ImageReader::new(Cursor::new(file.unwrap_unchecked().read().await))
+//             .with_guessed_format()
+//             .unwrap_unchecked()
+//     }
+//     .decode()?
+//     .resize(1024, 1024, imageops::CatmullRom);
+
+//     let preview = Preview::ready(image.clone(), Instant::now());
+
+//     Ok(Intermediate {
+//         current_step: Step::Original,
+//         preview,
+//         image: Some(image),
+//     })
+// }
 
 fn main() -> iced::Result {
     console_log::init().expect("Initialize logger");
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));
 
-    iced::application(Img::default, Img::update, Img::view)
+    iced::application::timed(Img::new, Img::update, Img::subscription, Img::view)
         .centered()
         .run()
 }

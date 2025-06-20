@@ -488,6 +488,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "blurhash"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e79769241dcd44edf79a732545e8b5cec84c247ac060f5252cd51885d093a8fc"
+
+[[package]]
 name = "built"
 version = "0.7.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1600,6 +1606,7 @@ dependencies = [
  "iced_debug",
  "iced_futures",
  "raw-window-handle",
+ "sipper",
  "thiserror 1.0.69",
 ]
 
@@ -2726,11 +2733,16 @@ checksum = "8b870d8c151b6f2fb93e84a13146138f05d02ed11c7e7c54f8826aaaf7c9f184"
 name = "pineapplehub"
 version = "0.1.0"
 dependencies = [
+ "blurhash",
  "console_error_panic_hook",
  "console_log",
  "iced",
  "image",
+ "js-sys",
  "rfd",
+ "sipper",
+ "thiserror 2.0.12",
+ "wasm-bindgen-futures",
 ]
 
 [[package]]
@@ -3279,6 +3291,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95890f873bec569a0362c235787f3aca6e1e887302ba4840839bcc6459c42da6"
 dependencies = [
  "quote",
+]
+
+[[package]]
+name = "sipper"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1bccb4192828b3d9a08e0b5a73f17795080dfb278b50190216e3ae2132cf4f95"
+dependencies = [
+ "futures",
+ "pin-project-lite",
 ]
 
 [[package]]
