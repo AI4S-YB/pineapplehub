@@ -1,5 +1,4 @@
 use crate::{Intermediate, Message, Preview, Step, error::Error};
-
 use gloo_timers::future::TimeoutFuture;
 use iced::{
     Element, Task, task,
@@ -15,7 +14,7 @@ use std::io::Cursor;
 #[derive(Debug, Clone)]
 pub(crate) enum Update {
     Uploading(Progress),
-    Finished(Result<Intermediate, Error>),
+    Finished(Result<Option<Intermediate>, Error>),
 }
 
 pub(crate) enum State {
@@ -65,8 +64,8 @@ impl Upload {
                     *progress = new_progress;
                 }
                 Update::Finished(result) => {
-                    self.state = if let Ok(i) = result {
-                        State::Finished(i)
+                    self.state = if let Ok(o) = result {
+                        o.map_or_else(|| State::Idle, |i| State::Finished(i))
                     } else {
                         State::Errored
                     };
@@ -97,72 +96,78 @@ impl Upload {
     }
 }
 
-// #[wasm_bindgen]
-pub(crate) fn upload() -> impl Straw<Intermediate, Progress, Error> {
+pub(crate) fn upload() -> impl Straw<Option<Intermediate>, Progress, Error> {
     sipper(async move |mut progress| {
-        let file = unsafe { AsyncFileDialog::new().pick_file().await.unwrap_unchecked() };
+        if let Some(file) = AsyncFileDialog::new().pick_file().await {
+            let js_file = file.inner();
 
-        let js_file = file.inner();
-
-        let total_size = js_file.size() as usize;
-        let _ = progress.send(Progress::Progress(0.0)).await;
-
-        let mut loaded = 0;
-        let mut buffer = Vec::with_capacity(total_size);
-
-        let chunk_size = match total_size {
-            0..=500_000 => 16 * 1024,         // Small:   16KB
-            500_001..=5_000_000 => 64 * 1024, // Medium:  64KB
-            _ => 128 * 1024,                  // Large:   256KB
-        };
-        let mut start = 0;
-
-        while start < total_size {
-            let end = (start + chunk_size).min(total_size);
-            let chunk = js_file
-                .slice_with_i32_and_i32(start as i32, end as i32)
-                .unwrap();
-            let array_buffer = wasm_bindgen_futures::JsFuture::from(chunk.array_buffer())
-                .await
-                .map_err(|js_value| {
-                    let error_str = js_value
-                        .as_string()
-                        .unwrap_or_else(|| format!("Unrecognized JS error: {:?}", js_value));
-                    Error::Read(error_str)
-                })?;
-            let chunk_data = js_sys::Uint8Array::new(&array_buffer).to_vec();
-
-            buffer.extend_from_slice(&chunk_data);
-            loaded += chunk_data.len();
-            start = end;
-
-            if loaded % chunk_size == 0 || loaded == total_size {
-                let _ = progress
-                    .send(Progress::Progress(
-                        loaded as f32 / total_size as f32 * 100.0,
-                    ))
-                    .await;
+            let total_size = js_file.size() as usize;
+            if total_size == 0 {
+                todo!()
             }
+            let _ = progress.send(Progress::Progress(0.0)).await;
+
+            let mut loaded = 0;
+            let mut buffer = Vec::with_capacity(total_size);
+
+            let chunk_size = match total_size {
+                0..=500_000 => 16 * 1024,         // Small:   16KB
+                500_001..=5_000_000 => 64 * 1024, // Medium:  64KB
+                _ => 128 * 1024,                  // Large:   256KB
+            };
+            let mut start = 0;
+
+            while start < total_size {
+                let end = (start + chunk_size).min(total_size);
+                let chunk = unsafe {
+                    js_file
+                        .slice_with_i32_and_i32(start as i32, end as i32)
+                        .unwrap_unchecked()
+                };
+                let array_buffer = wasm_bindgen_futures::JsFuture::from(chunk.array_buffer())
+                    .await
+                    .map_err(|js_value| {
+                        let error_str = js_value
+                            .as_string()
+                            .unwrap_or_else(|| format!("Unrecognized JS error: {:?}", js_value));
+                        Error::Read(error_str)
+                    })?;
+                let chunk_data = js_sys::Uint8Array::new(&array_buffer).to_vec();
+
+                buffer.extend_from_slice(&chunk_data);
+                loaded += chunk_data.len();
+                start = end;
+
+                if loaded % chunk_size == 0 || loaded == total_size {
+                    let _ = progress
+                        .send(Progress::Progress(
+                            loaded as f32 / total_size as f32 * 100.0,
+                        ))
+                        .await;
+                }
+            }
+
+            TimeoutFuture::new(100).await;
+            let _ = progress.send(Progress::Resizing).await;
+            TimeoutFuture::new(200).await;
+
+            let image = unsafe {
+                ImageReader::new(Cursor::new(buffer))
+                    .with_guessed_format()
+                    .unwrap_unchecked()
+            }
+            .decode()?
+            .resize(1024, 1024, imageops::Gaussian);
+
+            let preview = Preview::ready(image.clone(), Instant::now());
+
+            Ok(Some(Intermediate {
+                current_step: Step::Original,
+                preview,
+                image: Some(image),
+            }))
+        } else {
+            Ok(None)
         }
-
-        TimeoutFuture::new(100).await;
-        let _ = progress.send(Progress::Resizing).await;
-        TimeoutFuture::new(200).await;
-
-        let image = unsafe {
-            ImageReader::new(Cursor::new(buffer))
-                .with_guessed_format()
-                .unwrap_unchecked()
-        }
-        .decode()?
-        .resize(1024, 1024, imageops::Gaussian);
-
-        let preview = Preview::ready(image.clone(), Instant::now());
-
-        Ok(Intermediate {
-            current_step: Step::Original,
-            preview,
-            image: Some(image),
-        })
     })
 }

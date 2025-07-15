@@ -12,16 +12,18 @@ iced = { git = "https://github.com/iced-rs/iced.git", features = [
   "advanced",
   "sipper",
 ] }
-rfd = { git = "https://github.com/PolyMeilex/rfd.git", features = [
+rfd = { git = "https://github.com/bioinformatist/rfd.git", branch = "fix/cancel_button", features = [
   "file-handle-inner",
 ] }
 image = { version = "0.25" }
 blurhash = "0.2.3"
 thiserror = "2"
 sipper = "0.1"
+wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 gloo-timers = { version = "0.3", features = ["futures"] }
+web-sys = { version = "0.3", features = ["Window"] }
 
 console_error_panic_hook = "0.1"
 console_log = "1.0"

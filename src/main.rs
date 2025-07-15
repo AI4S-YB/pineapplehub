@@ -181,26 +181,6 @@ impl Img {
     }
 }
 
-// async fn upload_img() -> Result<Intermediate, Error> {
-//     let file = AsyncFileDialog::new().pick_file().await;
-
-//     let image = unsafe {
-//         ImageReader::new(Cursor::new(file.unwrap_unchecked().read().await))
-//             .with_guessed_format()
-//             .unwrap_unchecked()
-//     }
-//     .decode()?
-//     .resize(1024, 1024, imageops::CatmullRom);
-
-//     let preview = Preview::ready(image.clone(), Instant::now());
-
-//     Ok(Intermediate {
-//         current_step: Step::Original,
-//         preview,
-//         image: Some(image),
-//     })
-// }
-
 fn main() -> iced::Result {
     console_log::init().expect("Initialize logger");
     std::panic::set_hook(Box::new(console_error_panic_hook::hook));

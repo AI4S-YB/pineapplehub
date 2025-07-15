@@ -163,6 +163,9 @@ dependencies = [
  "serde",
  "serde_repr",
  "url",
+ "wayland-backend",
+ "wayland-client",
+ "wayland-protocols",
  "zbus",
 ]
 
@@ -2744,7 +2747,9 @@ dependencies = [
  "rfd",
  "sipper",
  "thiserror 2.0.12",
+ "wasm-bindgen",
  "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
@@ -3091,8 +3096,8 @@ checksum = "19b30a45b0cd0bcca8037f3d0dc3421eaf95327a17cad11964fb8179b4fc4832"
 
 [[package]]
 name = "rfd"
-version = "0.15.3"
-source = "git+https://github.com/PolyMeilex/rfd.git#db842f5ce99ec8c84f6dc2fc930d628380e1bcde"
+version = "0.15.4"
+source = "git+https://github.com/bioinformatist/rfd.git?branch=fix%2Fcancel_button#f27e363e9c9940f71abbee43b27546dfef4fb417"
 dependencies = [
  "ashpd 0.11.0",
  "block2 0.6.1",
