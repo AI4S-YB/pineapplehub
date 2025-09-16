@@ -9,13 +9,12 @@ use crate::{
     upload::{State, Update, Upload},
 };
 
-use ::image::{DynamicImage, EncodableLayout, imageops};
+use ::image::{imageops, DynamicImage, EncodableLayout};
 use iced::{
-    Element, Length, Subscription, Task,
     advanced::image::Bytes,
     time::Instant,
     widget::{button, column, container, grid, horizontal_space, image, row, scrollable, stack},
-    window,
+    window, Element, Length, Subscription, Task,
 };
 
 #[non_exhaustive]
@@ -183,7 +182,7 @@ impl Img {
 
 fn main() -> iced::Result {
     console_log::init().expect("Initialize logger");
-    std::panic::set_hook(Box::new(console_error_panic_hook::hook));
+    console_error_panic_hook::set_once();
 
     iced::application::timed(Img::new, Img::update, Img::subscription, Img::view)
         .centered()

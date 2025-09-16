@@ -1,0 +1,8 @@
+[serve.headers]
+# see ./assets/_headers for more documentation
+"cross-origin-embedder-policy" = "require-corp"
+"cross-origin-opener-policy" = "same-origin"
+"cross-origin-resource-policy" = "same-site"
+
+[build]
+filehash = false

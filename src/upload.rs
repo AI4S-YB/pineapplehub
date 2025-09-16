@@ -96,6 +96,11 @@ impl Upload {
     }
 }
 
+/// Upload and resizing the image.
+/// Returns an `Option<Intermediate>` which is `None` if the upload was cancelled.
+///
+/// Typically, this should be split into two functions to avoid [long method](https://refactoring.guru/smells/long-method),
+/// but for iced, there's no proper [`Task`](https://docs.iced.rs/iced/struct.Task.html#implementations) type for such two consecutive operations.
 pub(crate) fn upload() -> impl Straw<Option<Intermediate>, Progress, Error> {
     sipper(async move |mut progress| {
         if let Some(file) = AsyncFileDialog::new().pick_file().await {
@@ -147,6 +152,9 @@ pub(crate) fn upload() -> impl Straw<Option<Intermediate>, Progress, Error> {
                 }
             }
 
+            // Here, the rendering will be blocked since there's a heavy calculation though the signal has been sent.
+            // See https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Execution_model
+            // The ugly solution maybe can be solved by [`wasm_bindgen_spawn`](https://docs.rs/wasm-bindgen-spawn/latest/wasm_bindgen_spawn)
             TimeoutFuture::new(100).await;
             let _ = progress.send(Progress::Resizing).await;
             TimeoutFuture::new(200).await;
