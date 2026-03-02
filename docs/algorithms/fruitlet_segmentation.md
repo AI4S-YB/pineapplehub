@@ -25,12 +25,19 @@ The pineapple surface is modeled as a textured surface with specific physical fe
     $$ I_{smooth} = I_{raw} * G_\sigma $$
 
 2.  **Scale Calibration (Coin Detection)**:
-    Identify the reference object to establish the mapping from pixels to millimeters.
+    Identify the reference object to establish the mapping from pixels to millimeters. Since environmental factors (like stains or dirt) can alter the coin's apparent shape, the algorithm employs a robust shape-repair mechanism.
     *   **Detection**: Apply Otsu's thresholding and contour analysis.
-    *   **Selection**: Identify the candidate with the **Highest Circularity** (> 0.85).
+    *   **Pre-processing (Convex Hull Repair)**: For each candidate contour, calculate its Convex Hull. By bridging concavities caused by edge defects, we recover the true underlying circular geometry.
+    *   **Metrics Calculation (Rotation-Invariant)**: Extract precisely invariant properties from the hull:
+        *   *Aspect Ratio*: Calculated as the ratio of the short edge to the long edge of the `min_area_rect` (bound inside $(0, 1]$), ensuring complete immunity to rotational distortion.
+        *   *Fill Ratio*: The ratio of the hull's area to the `min_area_rect`'s area (ideal circle $\approx \pi/4$).
+        *   *Circularity*: Derived via the standard $4\pi A / P^2$ formula on the hull perimeter.
+    *   **Selection (Two-Tier Architecture)**:
+        *   *Tier 1 (Strict)*: First filters candidates enforcing strict constraints: Aspect Ratio > 0.95, Fill Ratio $\in [0.70, 0.88]$, and Circularity > 0.85.
+        *   *Tier 2 (Relaxed Fallback)*: If strict selection fails, falls back to relaxed thresholds (e.g., Circularity > 0.70) coupled with a penalty-weighted scoring system that prefers minimal deviation from ideal circle metrics.
     *   **Derivation**:
-        $$ \text{pixels\_per\_mm} = \frac{\text{Radius}_{coin\_px}}{12.5mm} $$
-        (Assuming 1 Yuan Coin diameter = 25mm).
+        $$ \text{pixels\_per\_mm} = \frac{\text{Radius}_{hull\_px}}{12.5mm} $$
+        (Assuming 1 Yuan Coin diameter = 25mm, Radius derived from Hull Area).
 
 3.  **Parameter Derivation (CV-Based)**:
     All morphological and spatial parameters are derived from the physical scale:
