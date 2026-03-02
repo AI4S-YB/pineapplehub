@@ -1,13 +1,13 @@
 mod correction;
 mod error;
-mod intermediate;
+mod pipeline;
 mod ui;
 mod upload;
 mod utils;
 
 use crate::{
     error::Error,
-    intermediate::{EncodedImage, Intermediate, Step},
+    pipeline::{EncodedImage, Intermediate, Step},
     ui::{preview::Preview, viewer::Viewer},
     upload::{State, Update, Upload},
     utils::dynamic_image_to_handle,
