@@ -18,11 +18,15 @@
 
 **目标**：建立物理比例尺 $\rho$（px/mm），抑制传感器噪声，并生成用于后续轮廓分析的二值化表示。
 
-#### 1.1 高斯平滑
+#### 1.1 噪声抑制
 
-对原始亮度图像 $I_{raw}$ 应用标准差 $\sigma = 1.0$ 像素的高斯滤波器，在保留结构边缘的同时去除高频传感器噪声：
+对原始亮度图像 $I_{raw}$ 依次进行两步滤波。首先以 $3\times 3$ 中值滤波去除椒盐噪声，不模糊边缘：
 
-$$I_{smooth} = I_{raw} * G_\sigma$$
+$$I_{med} = \text{median}_{3\times 3}(I_{raw})$$
+
+然后应用标准差 $\sigma = 1.0$ 像素的高斯滤波器，在保留结构边缘的同时平滑残余高频传感器噪声：
+
+$$I_{smooth} = I_{med} * G_\sigma$$
 
 #### 1.2 鲁棒轮廓提取
 
@@ -34,11 +38,11 @@ $$B = \mathbf{1}[I_{smooth} > \tau^*]$$
 
 2.  **形态学闭运算**（半径 2 px，$L_2$ 结构元素）：桥接高光引起的细小空洞：
 
-$$B_{closed} = B \ominus \text{disk}(2) \oplus \text{disk}(2)$$
+$$B_{closed} = B \oplus \text{disk}(2) \ominus \text{disk}(2)$$
 
 3.  **形态学开运算**（半径 3 px，$L_2$ 结构元素）：去除细长突起和孤立噪点：
 
-$$B_{open} = B_{closed} \oplus \text{disk}(3) \ominus \text{disk}(3)$$
+$$B_{open} = B_{closed} \ominus \text{disk}(3) \oplus \text{disk}(3)$$
 
 4.  **轮廓检测与直线边缘剔除**（`remove_hypotenuse`）：边界包含长直线段（用于指示直尺等矩形物体）的轮廓被丢弃，检测阈值为 5.0 像素。
 

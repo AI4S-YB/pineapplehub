@@ -18,11 +18,15 @@ This document provides a mathematically rigorous description of the computer vis
 
 **Objective**: Establish the physical scale $\rho$ (px/mm), suppress sensor noise, and produce a binarised representation for downstream contour analysis.
 
-#### 1.1 Gaussian Smoothing
+#### 1.1 Noise Suppression
 
-A Gaussian filter with $\sigma = 1.0$ pixel is applied to the raw luminance image $I_{raw}$ to remove high-frequency sensor noise while preserving structural edges:
+A two-stage filter is applied to the raw luminance image $I_{raw}$. First, a $3\times 3$ median filter removes salt-and-pepper noise without blurring edges:
 
-$$I_{smooth} = I_{raw} * G_\sigma$$
+$$I_{med} = \text{median}_{3\times 3}(I_{raw})$$
+
+Then a Gaussian filter with $\sigma = 1.0$ pixel smooths residual high-frequency sensor noise while preserving structural edges:
+
+$$I_{smooth} = I_{med} * G_\sigma$$
 
 #### 1.2 Robust Contour Extraction
 
@@ -34,11 +38,11 @@ $$B = \mathbf{1}[I_{smooth} > \tau^*]$$
 
 2.  **Morphological Closing** (radius 2 px, $L_2$ structuring element): Bridges small gaps caused by specular highlights:
 
-$$B_{closed} = B \ominus \text{disk}(2) \oplus \text{disk}(2)$$
+$$B_{closed} = B \oplus \text{disk}(2) \ominus \text{disk}(2)$$
 
 3.  **Morphological Opening** (radius 3 px, $L_2$ structuring element): Removes thin protrusions and isolated noise:
 
-$$B_{open} = B_{closed} \oplus \text{disk}(3) \ominus \text{disk}(3)$$
+$$B_{open} = B_{closed} \ominus \text{disk}(3) \oplus \text{disk}(3)$$
 
 4.  **Contour Finding with Straight-Edge Rejection** (`remove_hypotenuse`): Contours whose boundary contains long straight segments (indicative of rulers or other rectilinear objects) are discarded. The detection threshold is 5.0 pixels.
 
