@@ -27,7 +27,7 @@ fn get_tight_bounds(
     let binary =
         imageproc::contrast::threshold(img, otsu, imageproc::contrast::ThresholdType::Binary);
 
-    // Python matching morphology: resize to 0.25x
+    // Multi-scale morphology (Doc §3.3): resize to 0.25x
     let w = binary.width();
     let h = binary.height();
     let small_w = (w as f32 * 0.25).max(1.0) as u32;
@@ -247,7 +247,7 @@ pub(crate) fn process_binary_fusion(
         .ok_or(Error::General("Missing contours".into()))?;
 
     let contours_vec: Vec<_> = (**contours).clone();
-    let (_, roi_rect_low_res) = extract_best_roi(smoothed, image, px_per_mm, contours_vec)?;
+    let roi_rect_low_res = extract_best_roi(smoothed, px_per_mm, contours_vec)?;
 
     // Extract ROI
     if let Some(roi_rect_low_res) = roi_rect_low_res {
@@ -347,9 +347,9 @@ pub(crate) fn process_binary_fusion(
 
         // Right panel: horizontal_unwrapped (Horizontal Cylinder)
         let horiz_rotated = ::image::imageops::rotate90(&warped);
-        // Reverting to `unwrap` because Python's `unwrap(cv2.rotate(warped))` implicitly uses
-        // the rotated image's width (which is `hr_h`) as `f` and `r`.
-        // While physically "distorted", this is the exact projection Python uses for volume integration.
+        // Using `unwrap` directly (with f = r = H_roi) matches Doc §3.2 HORIZ_UNWRAP:
+        // the rotated image's width is H_roi, so `unwrap` implicitly uses H_roi as f and r.
+        // This is the correct projection for obtaining accurate radial (width) values.
         let horiz_unwrapped = unwrap(&horiz_rotated);
 
         // Build 3 panel image: vert_unwrapped (w x h) | warped | horiz_unwrapped (h x w)

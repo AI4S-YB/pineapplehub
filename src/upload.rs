@@ -119,7 +119,7 @@ pub(crate) fn upload() -> impl Straw<Box<Option<Intermediate>>, Progress, Error>
             #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
             let total_size = js_file.size() as usize;
             if total_size == 0 {
-                todo!()
+                return Err(Error::General("Selected file is empty".into()));
             }
             let () = progress.send(Progress::Progress(0.0)).await;
 
@@ -129,7 +129,7 @@ pub(crate) fn upload() -> impl Straw<Box<Option<Intermediate>>, Progress, Error>
             let chunk_size = match total_size {
                 0..=500_000 => 16 * 1024,         // Small:   16KB
                 500_001..=5_000_000 => 64 * 1024, // Medium:  64KB
-                _ => 128 * 1024,                  // Large:   256KB
+                _ => 128 * 1024,                  // Large:   128KB
             };
             let mut start = 0;
 
@@ -171,10 +171,6 @@ pub(crate) fn upload() -> impl Straw<Box<Option<Intermediate>>, Progress, Error>
             TimeoutFuture::new(100).await;
             let () = progress.send(Progress::Resizing).await;
             TimeoutFuture::new(200).await;
-
-            if total_size == 0 {
-                return Err(Error::General("Selected file is empty".into()));
-            }
 
             // Single decode: avoids redundant ImageReader parse for dimensions + full decode
             let original_high_res = ImageReader::new(Cursor::new(buffer))

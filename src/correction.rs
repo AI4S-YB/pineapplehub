@@ -1,7 +1,7 @@
 use image::{GrayImage, ImageBuffer, Luma};
 
-/// Unwraps an already-upright cropped cylinder image exactly like Python's `convert_pt`.
-/// Assumes f = w and r = w
+/// Unwraps an already-upright cropped cylinder image using the inverse cylindrical projection.
+/// Assumes f = w and r = w (Doc §3.1 auto-scaling geometry).
 pub fn unwrap(img: &GrayImage) -> GrayImage {
     let w = img.width() as f32;
     unwrap_with_radius(img, w, w)
