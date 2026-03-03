@@ -190,17 +190,18 @@ $$I_{horiz} = \texttt{unwrap}(\texttt{rot90}(I_{roi})) \qquad [f = r = H_{roi}]$
 | `VERT_UNWRAP` 矩形 | $\ell_{major}$ | **高度** $\ell_H$ |
 | `HORIZ_UNWRAP` 矩形 | $\ell_{minor}$ | **宽度** $\ell_W$ |
 
-#### 3.4 体积积分
+#### 3.4 体积积分（圆盘法）
 
-体积由 `HORIZ_UNWRAP` 轮廓通过旋转体圆盘积分法计算。将轮廓点 $\{(x_k, y_k)\}$ 投影至长轴方向，得到各点到旋转轴的径向距离 $R_k$：
+体积由 `HORIZ_UNWRAP` 轮廓通过**旋转体圆盘积分法**计算。将轮廓点 $\{(x_k, y_k)\}$ 相对于矩形中心 $(c_x, c_y)$ 分解为沿旋转轴（长轴方向角 $\varphi$）的两个正交分量：
 
-$$R_k = \bigl|(x_k - c_x)\cos\varphi + (y_k - c_y)\sin\varphi\bigr|$$
+- **沿轴坐标**（截面位置）：$t_k = (x_k - c_x)\cos\varphi + (y_k - c_y)\sin\varphi$
+- **垂直距离**（截面半径）：$r_k = |{-(x_k - c_x)\sin\varphi + (y_k - c_y)\cos\varphi}|$
 
-其中 $(c_x, c_y)$ 为矩形中心，仅保留投影坐标为正的点（果实对称体的一半）。按 $R_k$ 排序后：
+仅保留 $t_k \geq 0$ 的点（果实对称体的一半）。按 $t_k$ 递增排序后，逐对相邻点执行圆盘积分：
 
-$$V_{px} = \sum_{k}\frac{\pi}{3}\bigl(R_{k+1}^3 - R_k^3\bigr)$$
+$$V_{px} = \sum_{k}\pi\,R_k^2\,\Delta t_k, \qquad R_k = \max(r_k, r_{k+1}), \quad \Delta t_k = t_{k+1} - t_k$$
 
-以双精度浮点数（`f64`）累加以抑制舍入误差，最终转换为物理单位：
+取相邻两点中较大的 $r$ 作为该薄片的截面半径（轮廓外包络）。以双精度浮点数（`f64`）累加以抑制舍入误差，最终转换为物理单位：
 
 $$V = V_{px} \cdot \rho_{hr}^{-3} \quad [\text{mm}^3]$$
 

@@ -186,17 +186,18 @@ For each of the two unwrapped images, the following pipeline is applied to extra
 | `VERT_UNWRAP` rect | $\ell_{major}$ | **Height** $\ell_H$ |
 | `HORIZ_UNWRAP` rect | $\ell_{minor}$ | **Width** $\ell_W$ |
 
-#### 3.4 Volume Integration
+#### 3.4 Volume Integration (Disk Method)
 
-The solid of revolution volume is computed from the `HORIZ_UNWRAP` contour using the disc-integration method. Contour points $\{(x_k, y_k)\}$ are projected onto the major axis to obtain radial distances $R_k$ from the rotational axis:
+The solid-of-revolution volume is computed from the `HORIZ_UNWRAP` contour using the **disk integration method**. Each contour point $\{(x_k, y_k)\}$ is decomposed relative to the rectangle centroid $(c_x, c_y)$ into two orthogonal components along the rotation axis (major-axis direction $\varphi$):
 
-$$R_k = \bigl|(x_k - c_x)\cos\varphi + (y_k - c_y)\sin\varphi\bigr|$$
+- **Along-axis coordinate** (slice position): $t_k = (x_k - c_x)\cos\varphi + (y_k - c_y)\sin\varphi$
+- **Perpendicular distance** (cross-section radius): $r_k = |{-(x_k - c_x)\sin\varphi + (y_k - c_y)\cos\varphi}|$
 
-where $(c_x, c_y)$ is the rectangle centroid and only points with positive projected coordinate are retained (one half of the symmetric fruit). After sorting by $R_k$:
+Only points with $t_k \geq 0$ are retained (one half of the symmetric fruit). After sorting by $t_k$ in ascending order, consecutive point pairs are used for disk integration:
 
-$$V_{px} = \sum_{k}\frac{\pi}{3}\bigl(R_{k+1}^3 - R_k^3\bigr)$$
+$$V_{px} = \sum_{k}\pi\,R_k^2\,\Delta t_k, \qquad R_k = \max(r_k, r_{k+1}), \quad \Delta t_k = t_{k+1} - t_k$$
 
-accumulated in double precision to suppress rounding errors, then converted to physical units:
+For each thin slab, the larger $r$ of the two adjacent points is taken as the cross-section radius (contour outer envelope). The sum is accumulated in double precision (`f64`) to suppress rounding errors, then converted to physical units:
 
 $$V = V_{px} \cdot \rho_{hr}^{-3} \quad [\text{mm}^3]$$
 

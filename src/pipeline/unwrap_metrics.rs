@@ -78,27 +78,45 @@ fn compute_rect_metrics(box_points: &[Point<i32>; 4]) -> (f32, f32, f32, f32, f3
     (major, minor, angle, cx, cy)
 }
 
-/// Integrates volume from contour points projected onto a rotational axis.
-/// Uses f64 accumulator internally to reduce rounding errors from summing many small cubics.
+/// Integrates volume of a body of revolution using the disk method.
+///
+/// For each contour point, we compute:
+/// - `t`: the signed projection along the rotation axis (major axis direction)
+/// - `r`: the perpendicular distance from the rotation axis
+///
+/// We keep only the positive-t half (the body is assumed symmetric), sort by t,
+/// then for each consecutive pair of t values, use the maximum r as the
+/// cross-section radius and accumulate π × r² × Δt.
+///
+/// Uses f64 accumulator internally to reduce rounding errors.
 fn integrate_volume(contour: &[Point<i32>], cx: f32, cy: f32, angle: f32) -> f32 {
-    let mut valid_points = Vec::with_capacity(contour.len());
+    let cos_a = angle.cos();
+    let sin_a = angle.sin();
+
+    // Collect (t, r) pairs for positive-t half of the contour
+    let mut tr_points: Vec<(f32, f32)> = Vec::with_capacity(contour.len());
     for pt in contour {
         let lx = pt.x as f32 - cx;
         let ly = pt.y as f32 - cy;
-        // Project point onto shifted major axis directly
-        let rot_x = lx * angle.cos() + ly * angle.sin();
-        if rot_x >= 0.0 {
-            valid_points.push(rot_x.abs());
+        // t = projection along rotation axis (major axis)
+        let t = lx * cos_a + ly * sin_a;
+        // r = perpendicular distance from rotation axis
+        let r = (-lx * sin_a + ly * cos_a).abs();
+        if t >= 0.0 {
+            tr_points.push((t, r));
         }
     }
 
-    valid_points.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    // Sort by t (along-axis coordinate)
+    tr_points.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
 
+    // Disk integration: for each consecutive pair, the cross-section radius
+    // is the maximum r found among the two endpoints (contour outline).
     let mut vol: f64 = 0.0;
-    for w in valid_points.windows(2) {
-        let r0 = w[0] as f64;
-        let r1 = w[1] as f64;
-        vol += std::f64::consts::PI / 3.0 * (r1.powi(3) - r0.powi(3));
+    for w in tr_points.windows(2) {
+        let dt = (w[1].0 - w[0].0) as f64;
+        let r_max = w[0].1.max(w[1].1) as f64;
+        vol += std::f64::consts::PI * r_max * r_max * dt;
     }
     vol as f32
 }
