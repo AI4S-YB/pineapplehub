@@ -267,17 +267,28 @@ impl App {
                         job.status = JobStatus::Processing;
                     }
 
-                    // Parallel processing via rayon Web Workers
+                    // Two-phase pipeline:
+                    // Phase 1 (main thread): decode images sequentially
+                    //   → avoids OOM from concurrent full-res decode
+                    // Phase 2 (rayon workers): process in parallel
+                    //   → CPU-intensive steps run on all cores
                     return Task::perform(
                         async move {
                             use rayon::prelude::*;
-                            entries_clone
-                                .par_iter()
-                                .enumerate()
-                                .map(|(id, entry)| {
-                                    (id, pipeline::fast::run_pipeline_fast(entry))
-                                })
-                                .collect::<Vec<_>>()
+
+                            // Phase 1: sequential decode on main thread
+                            let prepared: Vec<(usize, Result<pipeline::fast::PreparedImage, Error>)> =
+                                entries_clone.iter().enumerate().map(|(id, entry)| {
+                                    (id, pipeline::fast::prepare_image(entry))
+                                }).collect();
+
+                            // Phase 2: parallel processing in rayon workers
+                            prepared.into_par_iter().map(|(id, prep_result)| {
+                                let result = prep_result.and_then(|prep| {
+                                    pipeline::fast::process_prepared(&prep)
+                                });
+                                (id, result)
+                            }).collect::<Vec<_>>()
                         },
                         Message::BatchDone,
                     );

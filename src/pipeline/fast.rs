@@ -230,13 +230,43 @@ fn compute_fruitlet_rect(box_points: &[Point<i32>; 4]) -> (f32, f32, f32) {
     (major, minor, angle)
 }
 
-// ── Main fast pipeline ──
+/// Pre-decoded image data ready for worker processing.
+/// Created on the main thread (where image decoders work safely),
+/// then sent to rayon Web Workers for CPU-intensive computation.
+pub(crate) struct PreparedImage {
+    /// High-res grayscale (for crop/rotate/unwrap/counting)
+    pub gray_hr: ImageBuffer<Luma<u8>, Vec<u8>>,
+    /// Downsampled to 1024px (for calibration/ROI detection)
+    pub resized: DynamicImage,
+    /// Scale factor: gray_hr.width / resized.width
+    pub scale: f32,
+}
 
-/// Pure computation pipeline for a single image.
-/// No iced types, no browser APIs — safe for Web Workers.
-pub(crate) fn run_pipeline_fast(entry: &FileEntry) -> Result<FruitletMetrics, Error> {
+/// Phase 1 — runs on **main thread** (sequentially).
+/// Decodes the image, extracts gray_hr + resized, drops the original.
+/// Peak memory: one full-res decoded image at a time (~48MB).
+pub(crate) fn prepare_image(entry: &FileEntry) -> Result<PreparedImage, Error> {
+    let original = ImageReader::new(Cursor::new(&entry.data))
+        .with_guessed_format()
+        .map_err(|e| Error::General(format!("Format detect: {e}")))?
+        .decode()?;
+    let gray_hr = original.to_luma8();
+    let resized = original.resize(1024, 1024, imageops::Lanczos3);
+    let scale = gray_hr.width() as f32 / resized.width() as f32;
+    // `original` is dropped here — frees ~48MB (RGBA full-res)
+    Ok(PreparedImage { gray_hr, resized, scale })
+}
+
+/// Phase 2 — runs on **rayon Web Workers** (in parallel).
+/// Pure computation: smoothing, calibration, ROI, crop, rotate, unwrap, counting.
+/// No image decoding, no browser APIs needed.
+pub(crate) fn process_prepared(prep: &PreparedImage) -> Result<FruitletMetrics, Error> {
     console_error_panic_hook::set_once();
     use imageproc::geometric_transformations::{Interpolation, rotate_about_center};
+
+    let image = &prep.resized;
+    let gray_hr = &prep.gray_hr;
+    let scale = prep.scale;
 
     // Helper to log from worker threads (bypasses Rust log infra)
     macro_rules! wlog {
@@ -244,20 +274,6 @@ pub(crate) fn run_pipeline_fast(entry: &FileEntry) -> Result<FruitletMetrics, Er
             web_sys::console::log_1(&format!($($arg)*).into());
         }
     }
-
-    wlog!("[fast] step 1: decoding image ({} bytes)", entry.data.len());
-    let original_high_res = ImageReader::new(Cursor::new(&entry.data))
-        .with_guessed_format()
-        .map_err(|e| Error::General(format!("Format detect: {e}")))?
-        .decode()?;
-
-    // Extract high-res grayscale + compute scale BEFORE dropping the large image
-    let gray_hr = original_high_res.to_luma8();
-    wlog!("[fast] step 1b: resizing to 1024");
-    let image = original_high_res.resize(1024, 1024, imageops::Lanczos3);
-    let scale = gray_hr.width() as f32 / image.width() as f32;
-    // Drop the original high-res DynamicImage (~80MB RGBA) to free memory
-    drop(original_high_res);
 
     wlog!("[fast] step 2: smoothing");
     let smoothed = gaussian_blur_f32(&median_filter(&image.to_rgba8(), 1, 1), 1.0);

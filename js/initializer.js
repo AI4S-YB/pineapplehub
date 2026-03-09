@@ -7,10 +7,9 @@ export default function initRayon() {
         onComplete() {},
         onSuccess(wasm) {
             // `wasm` is the `* as bindings` import — includes initThreadPool.
-            // Limit to 2 workers: each image pipeline needs ~100-200MB working
-            // memory (high-res decode + resize + processing buffers).
-            // Too many concurrent workers exhaust WASM linear memory (OOM).
-            const cores = Math.min(navigator.hardwareConcurrency || 4, 2);
+            // Workers only receive pre-decoded images (~26MB each), so we
+            // can safely use all available cores.
+            const cores = navigator.hardwareConcurrency || 4;
             console.log(`[rayon] Initializing thread pool with ${cores} workers…`);
             return wasm.initThreadPool(cores).then(() => {
                 console.log('[rayon] Thread pool ready ✓');
