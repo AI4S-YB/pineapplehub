@@ -49,6 +49,11 @@ enum Message {
 
     // ── Processing ──
     BatchStart,
+    /// Deferred start: gives iced a render frame to show the decoding overlay
+    /// before the synchronous Phase 1 decode blocks the main thread.
+    StartDecoding,
+    /// Phase 1 decode finished — dismiss the overlay.
+    DecodingDone,
     /// Single-image debug-mode step-by-step processing
     Process(Result<Intermediate, Error>),
     BlurhashDecoded(Intermediate, EncodedImage),
@@ -87,6 +92,10 @@ struct App {
 
     /// Cached `has_directory_picker` result.
     can_pick_directory: bool,
+
+    /// True while Phase 1 (sequential image decode) is running.
+    /// Used to show a banner before the main thread blocks.
+    decoding: bool,
 }
 
 impl App {
@@ -100,6 +109,7 @@ impl App {
             show_pipeline: false,
             intermediates: Vec::new(),
             can_pick_directory: js_interop::has_directory_picker(),
+            decoding: false,
         }
     }
 
@@ -260,15 +270,22 @@ impl App {
                         }
                     }
 
-                    // Mark all jobs as Processing
+                    // Mark all jobs as Processing and show decoding overlay.
+                    // Return Task::done(StartDecoding) so iced renders the
+                    // overlay BEFORE the synchronous Phase 1 decode blocks.
                     for job in &mut self.jobs {
                         job.status = JobStatus::Processing;
                     }
-
-                    // Streaming parallel pipeline:
-                    //   Phase 1 (main thread): decode images sequentially
-                    //   Phase 2 (rayon workers): process in parallel
-                    //   Results stream back as each worker finishes → UI updates per image
+                    self.decoding = true;
+                    return Task::done(Message::StartDecoding);
+                }
+                Task::none()
+            }
+            Message::StartDecoding => {
+                // Now the overlay is visible. Start the streaming pipeline.
+                if let State::Finished(entries) = &self.upload.state {
+                    let entries_clone: Vec<FileEntry> = entries.clone();
+                    let num_jobs = self.jobs.len();
                     return Task::run(iced::stream::channel(num_jobs, move |mut output: futures::channel::mpsc::Sender<Message>| async move {
                         use futures::SinkExt;
 
@@ -282,6 +299,9 @@ impl App {
                                 }
                             }
                         }
+
+                        // Phase 1 done — dismiss overlay immediately
+                        let _ = output.send(Message::DecodingDone).await;
 
                         // Phase 2: spawn rayon tasks, collect results via channel
                         let (tx, mut rx) = futures::channel::mpsc::unbounded();
@@ -308,6 +328,10 @@ impl App {
                         }
                     }), |msg| msg);
                 }
+                Task::none()
+            }
+            Message::DecodingDone => {
+                self.decoding = false;
                 Task::none()
             }
             Message::JobDone(id, result) => {
@@ -603,7 +627,25 @@ impl App {
         );
 
         let viewer = self.viewer.view(self.now);
-        stack![content, viewer].into()
+        let mut layers = stack![content, viewer];
+
+        // Full-screen decoding overlay — blocks interaction visually
+        if self.decoding {
+            let overlay = container(
+                text("⏳ Decoding images…").size(24)
+            )
+            .style(|_theme: &iced::Theme| container::Style {
+                background: Some(iced::Background::Color(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.6))),
+                text_color: Some(iced::Color::WHITE),
+                ..Default::default()
+            })
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center(Length::Fill);
+            layers = layers.push(overlay);
+        }
+
+        layers.into()
     }
 }
 
