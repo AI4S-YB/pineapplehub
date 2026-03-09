@@ -1,3 +1,4 @@
+pub(crate) mod fast;
 pub(crate) mod fruitlet_counting;
 pub(crate) mod roi_extraction;
 pub(crate) mod scale_calibration;

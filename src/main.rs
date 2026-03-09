@@ -8,6 +8,9 @@ mod ui;
 mod upload;
 mod utils;
 
+// Re-export init_thread_pool so wasm-bindgen exposes `initThreadPool()` in JS.
+pub use wasm_bindgen_rayon::init_thread_pool;
+
 use crate::{
     error::Error,
     export::{jobs_to_csv, trigger_download},
@@ -49,8 +52,10 @@ enum Message {
     /// Single-image debug-mode step-by-step processing
     Process(Result<Intermediate, Error>),
     BlurhashDecoded(Intermediate, EncodedImage),
-    /// A batch job finished
+    /// A single batch job finished (sequential fallback)
     JobDone(usize, Result<FruitletMetrics, Error>),
+    /// All batch jobs finished in parallel (rayon)
+    BatchDone(Vec<(usize, Result<FruitletMetrics, Error>)>),
 
     // ── UI interaction ──
     SelectJob(usize),
@@ -60,6 +65,8 @@ enum Message {
     Close,
     Animate,
     ExportCsv,
+    /// No-op (used for smoke tests)
+    Noop,
 }
 
 // ────────────────────────  App State  ────────────────────────
@@ -255,22 +262,25 @@ impl App {
                         }
                     }
 
-                    // For batch/fast mode: process all images sequentially
-                    // (Phase 2 will replace this with rayon parallel)
-                    let mut tasks = Vec::new();
-                    for (id, entry) in entries_clone.into_iter().enumerate() {
-                        if id < num_jobs {
-                            self.jobs[id].status = JobStatus::Processing;
-                        }
-                        tasks.push(Task::perform(
-                            async move {
-                                let result = run_pipeline_fast(&entry);
-                                (id, result)
-                            },
-                            |(id, result)| Message::JobDone(id, result),
-                        ));
+                    // Mark all jobs as Processing
+                    for job in &mut self.jobs {
+                        job.status = JobStatus::Processing;
                     }
-                    return Task::batch(tasks);
+
+                    // Parallel processing via rayon Web Workers
+                    return Task::perform(
+                        async move {
+                            use rayon::prelude::*;
+                            entries_clone
+                                .par_iter()
+                                .enumerate()
+                                .map(|(id, entry)| {
+                                    (id, pipeline::fast::run_pipeline_fast(entry))
+                                })
+                                .collect::<Vec<_>>()
+                        },
+                        Message::BatchDone,
+                    );
                 }
                 Task::none()
             }
@@ -288,6 +298,23 @@ impl App {
                 }
                 Task::none()
             }
+            Message::BatchDone(results) => {
+                for (id, result) in results {
+                    if let Some(job) = self.jobs.get_mut(id) {
+                        match result {
+                            Ok(metrics) => {
+                                job.metrics = Some(metrics);
+                                job.status = JobStatus::Done;
+                            }
+                            Err(e) => {
+                                job.status = JobStatus::Error(format!("{e}"));
+                            }
+                        }
+                    }
+                }
+                Task::none()
+            }
+            Message::Noop => Task::none(),
 
             // ── UI interaction ──
             Message::SelectJob(id) => {
@@ -574,65 +601,8 @@ impl App {
 /// any intermediate images or previews.
 ///
 /// TODO Phase 2: This will be called from rayon worker threads.
-fn run_pipeline_fast(entry: &FileEntry) -> Result<FruitletMetrics, Error> {
-    use image::{ImageReader, imageops};
-    use imageproc::filter::{gaussian_blur_f32, median_filter};
-    use std::io::Cursor;
-
-    use crate::pipeline::{
-        scale_calibration::perform_scale_calibration,
-    };
-
-    // 1. Decode & resize
-    let original_high_res = ImageReader::new(Cursor::new(&entry.data))
-        .with_guessed_format()
-        .expect("Image format detection failed")
-        .decode()?;
-    let image = original_high_res.resize(1024, 1024, imageops::Lanczos3);
-
-    // 2. Smoothing
-    let smoothed = gaussian_blur_f32(&median_filter(&image.to_rgba8(), 1, 1), 1.0);
-
-    // 3. Scale calibration
-    let smoothed_luma = image::DynamicImage::ImageRgba8(smoothed).to_luma8();
-    let (_vis_img, px_per_mm, binary, fused, contours) =
-        perform_scale_calibration(&smoothed_luma);
-
-    let px_per_mm_val = px_per_mm.ok_or(Error::General("Scale calibration failed".into()))?;
-
-    // 4-6. ROI extraction + unwrapping + fruitlet counting
-    // We construct a minimal Intermediate and run the remaining pipeline steps
-    use std::sync::Arc;
-
-    let mut inter = Intermediate {
-        current_step: Step::BinaryFusion,
-        preview: Preview::ready(image::DynamicImage::ImageLuma8(fused.clone()), Instant::now()),
-        pixels_per_mm: Some(px_per_mm_val),
-        binary_image: Some(Arc::new(image::DynamicImage::ImageLuma8(binary))),
-        fused_image: Some(Arc::new(image::DynamicImage::ImageLuma8(fused))),
-        contours: Some(Arc::new(contours)),
-        context_image: Some(Arc::new(image::DynamicImage::ImageLuma8(smoothed_luma))),
-        roi_image: None,
-        original_high_res: Some(Arc::new(original_high_res)),
-        transform: None,
-        metrics: None,
-        horiz_contour: None,
-        horiz_rect_metrics: None,
-        scale_factor: None,
-    };
-
-    // Step 5: ROI extraction (unwrap_metrics)
-    let fused_img = (*inter.fused_image.clone().unwrap()).clone();
-    inter = pipeline::unwrap_metrics::process_binary_fusion(&inter, &fused_img)?;
-
-    // Step 6: Fruitlet counting
-    let roi_img = inter.preview.clone().into();
-    inter = pipeline::fruitlet_counting::process_fruitlet_counting(&inter, &roi_img)?;
-
-    inter
-        .metrics
-        .ok_or(Error::General("Pipeline produced no metrics".into()))
-}
+// run_pipeline_fast has been moved to pipeline/fast.rs
+// for Web Worker thread safety (no iced types / browser APIs).
 
 fn main() -> iced::Result {
     console_log::init().expect("Initialize logger");
