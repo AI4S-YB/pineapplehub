@@ -6,6 +6,18 @@ use serde::{Deserialize, Serialize};
 
 use crate::pipeline::FruitletMetrics;
 
+/// Snapshot of program-computed values before any manual edits.
+///
+/// Stored inside [`StoredMetrics`] so we can reset back to the original
+/// machine-computed output even after manual overrides.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub(crate) struct OriginalMetrics {
+    pub major_length: f32,
+    pub minor_length: f32,
+    pub a_eq: Option<f32>,
+    pub b_eq: Option<f32>,
+}
+
 /// Serializable metrics that support manual editing.
 ///
 /// Separated from [`FruitletMetrics`] so we can add the `manually_edited` flag
@@ -28,6 +40,9 @@ pub(crate) struct StoredMetrics {
     pub n_total: Option<u32>,
     /// Whether the user has manually edited any field.
     pub manually_edited: bool,
+    /// Snapshot of the original program-computed values (set on first manual edit).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub original: Option<OriginalMetrics>,
 }
 
 impl From<&FruitletMetrics> for StoredMetrics {
@@ -41,6 +56,7 @@ impl From<&FruitletMetrics> for StoredMetrics {
             surface_area: m.surface_area,
             n_total: m.n_total,
             manually_edited: false,
+            original: None,
         }
     }
 }

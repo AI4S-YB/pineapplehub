@@ -102,6 +102,8 @@ enum Message {
     OpenMetricEditor(String),
     MetricInputChanged(String, StoredMetrics),
     SaveEditedMetric(String, StoredMetrics),
+    SubmitCurrentMetric,
+    ResetCurrentMetric,
     CancelEdit,
     DeleteSelectedSessions,
     ConfirmDelete,
@@ -902,6 +904,13 @@ impl App {
                 Task::none()
             }
             Message::OpenMetricEditor(record_id) => {
+                // Toggle: close if already editing the same record
+                if let Some((ref current_id, _)) = self.editing_metric {
+                    if *current_id == record_id {
+                        self.editing_metric = None;
+                        return Task::none();
+                    }
+                }
                 let metrics = self
                     .current_records
                     .iter()
@@ -939,6 +948,62 @@ impl App {
             Message::CancelEdit => {
                 self.editing_note = None;
                 self.editing_metric = None;
+                Task::none()
+            }
+            Message::SubmitCurrentMetric => {
+                if let Some((record_id, mut metrics)) = self.editing_metric.take() {
+                    // On first manual edit, snapshot the original computed values
+                    if metrics.original.is_none() {
+                        if let Some(record) = self.current_records.iter().find(|r| r.id == record_id) {
+                            metrics.original = Some(history::model::OriginalMetrics {
+                                major_length: record.metrics.major_length,
+                                minor_length: record.metrics.minor_length,
+                                a_eq: record.metrics.a_eq,
+                                b_eq: record.metrics.b_eq,
+                            });
+                        }
+                    }
+                    metrics.manually_edited = true;
+                    if let Some(record) = self.current_records.iter_mut().find(|r| r.id == record_id) {
+                        record.metrics = metrics;
+                        record.suspect = false;
+                        let record = record.clone();
+                        return Task::perform(
+                            async move {
+                                if let Ok(db) = store::open_db().await {
+                                    let _ = store::update_record(&db, &record).await;
+                                }
+                            },
+                            |()| Message::Noop,
+                        );
+                    }
+                }
+                Task::none()
+            }
+            Message::ResetCurrentMetric => {
+                // Restore original program-computed values
+                if let Some((record_id, _)) = self.editing_metric.take() {
+                    if let Some(record) = self.current_records.iter_mut().find(|r| r.id == record_id) {
+                        if let Some(orig) = record.metrics.original.take() {
+                            record.metrics.major_length = orig.major_length;
+                            record.metrics.minor_length = orig.minor_length;
+                            record.metrics.a_eq = orig.a_eq;
+                            record.metrics.b_eq = orig.b_eq;
+                            record.metrics.manually_edited = false;
+                            // Keep editor open with restored values
+                            self.editing_metric = Some((record_id.clone(), record.metrics.clone()));
+                            let record = record.clone();
+                            return Task::perform(
+                                async move {
+                                    if let Ok(db) = store::open_db().await {
+                                        let _ = store::update_record(&db, &record).await;
+                                    }
+                                },
+                                |()| Message::Noop,
+                            );
+                        }
+                    }
+                }
                 Task::none()
             }
             Message::DeleteSelectedSessions => {
@@ -1013,24 +1078,32 @@ impl App {
             Message::ConfirmClearAll => {
                 self.clear_all_confirm = false;
                 let sids: Vec<String> = self.sessions.iter().map(|s| s.session_id.clone()).collect();
-                let count = sids.len();
+                if sids.is_empty() {
+                    return Task::none();
+                }
+                let session_count = sids.len();
+
+                // Soft-delete: cache everything for undo
+                let deleted_sessions = self.sessions.clone();
+                let deleted_records = self.current_records.clone();
+                let record_count = deleted_records.len();
+
                 self.sessions.clear();
                 self.selected_sessions.clear();
                 self.current_records.clear();
                 self.search_query.clear();
 
-                Task::perform(
-                    async move {
-                        if let Ok(db) = store::open_db().await {
-                            let deleted = store::delete_sessions(&db, &sids).await.unwrap_or(0);
-                            return format!(
-                                "Cleared all history: {count} session(s) ({deleted} records)"
-                            );
-                        }
-                        String::new()
-                    },
-                    Message::UndoToastMessage,
-                )
+                self.pending_delete = Some(PendingDelete {
+                    sessions: deleted_sessions,
+                    records: deleted_records,
+                    sids,
+                });
+                self.undo_toast = Some(format!(
+                    "Cleared all history: {session_count} session(s) ({record_count} records)"
+                ));
+                self.undo_countdown = Some(5);
+
+                Task::none()
             }
             Message::CancelClearAll => {
                 self.clear_all_confirm = false;
@@ -1260,12 +1333,14 @@ impl App {
             Page::History { panel, sidebar_open } => self.view_history(panel, *sidebar_open),
         };
 
-        let mut main_layout = column![title_bar, page_content].spacing(0);
+        let mut main_layout = column![title_bar].spacing(0);
 
-        // ── Undo toast ──
+        // ── Undo toast (placed before page content so it's visible) ──
         if let (Some(msg), Some(cd)) = (&self.undo_toast, self.undo_countdown) {
             main_layout = main_layout.push(history_view::view_undo_toast(msg, cd));
         }
+
+        main_layout = main_layout.push(page_content);
 
         let viewer = self.viewer.view(self.now);
         let mut layers = stack![main_layout, viewer];

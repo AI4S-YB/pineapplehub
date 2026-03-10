@@ -640,7 +640,6 @@ fn view_note_editor<'a>(record_id: &str, note_text: &str) -> Element<'a, Message
 
 fn view_metric_editor<'a>(record_id: &str, metrics: &StoredMetrics) -> Element<'a, Message> {
     let rid = record_id.to_string();
-    let rid2 = rid.clone();
     let base = metrics.clone();
 
     let h_rid = rid.clone();
@@ -664,6 +663,7 @@ fn view_metric_editor<'a>(record_id: &str, metrics: &StoredMetrics) -> Element<'
                         }
                         Message::MetricInputChanged(h_rid.clone(), m)
                     })
+                    .on_submit(Message::SubmitCurrentMetric)
                     .width(120),
             ]
             .spacing(4),
@@ -677,6 +677,7 @@ fn view_metric_editor<'a>(record_id: &str, metrics: &StoredMetrics) -> Element<'
                         }
                         Message::MetricInputChanged(w_rid.clone(), m)
                     })
+                    .on_submit(Message::SubmitCurrentMetric)
                     .width(120),
             ]
             .spacing(4),
@@ -691,6 +692,7 @@ fn view_metric_editor<'a>(record_id: &str, metrics: &StoredMetrics) -> Element<'
                     m.a_eq = val.parse::<f32>().ok();
                     Message::MetricInputChanged(a_rid.clone(), m)
                 })
+                .on_submit(Message::SubmitCurrentMetric)
                 .width(120),
             ]
             .spacing(4),
@@ -705,6 +707,7 @@ fn view_metric_editor<'a>(record_id: &str, metrics: &StoredMetrics) -> Element<'
                     m.b_eq = val.parse::<f32>().ok();
                     Message::MetricInputChanged(b_rid.clone(), m)
                 })
+                .on_submit(Message::SubmitCurrentMetric)
                 .width(120),
             ]
             .spacing(4),
@@ -713,7 +716,7 @@ fn view_metric_editor<'a>(record_id: &str, metrics: &StoredMetrics) -> Element<'
                     button(
                         text(icons::ICON_CHECK_CIRCLE).font(icons::ICON_FONT).size(16)
                     )
-                        .on_press(Message::SaveEditedMetric(rid2.clone(), metrics.clone()))
+                        .on_press(Message::SubmitCurrentMetric)
                         .style(button::primary)
                         .padding(4),
                     "Save",
@@ -727,6 +730,16 @@ fn view_metric_editor<'a>(record_id: &str, metrics: &StoredMetrics) -> Element<'
                         .style(button::secondary)
                         .padding(4),
                     "Cancel",
+                    tooltip::Position::Bottom,
+                ).style(tooltip_style),
+                tooltip(
+                    button(
+                        text(icons::ICON_HISTORY).font(icons::ICON_FONT).size(16)
+                    )
+                        .on_press(Message::ResetCurrentMetric)
+                        .style(button::danger)
+                        .padding(4),
+                    "Reset to original",
                     tooltip::Position::Bottom,
                 ).style(tooltip_style),
             ]
