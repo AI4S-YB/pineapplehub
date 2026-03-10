@@ -592,20 +592,19 @@ fn view_record_actions(record: &AnalysisRecord) -> Element<'_, Message> {
 }
 
 fn view_note_editor<'a>(record_id: &str, note_text: &str) -> Element<'a, Message> {
-    let rid = record_id.to_string();
-    let rid2 = rid.clone();
-    let current_note = note_text.to_string();
+    let rid_input = record_id.to_string();
 
     container(
         row![
             text_input("Enter note...", note_text)
-                .on_input(move |val| Message::NoteInputChanged(rid.clone(), val))
+                .on_input(move |val| Message::NoteInputChanged(rid_input.clone(), val))
+                .on_submit(Message::SubmitCurrentNote)
                 .width(Length::Fill),
             tooltip(
                 button(
                     text(icons::ICON_CHECK_CIRCLE).font(icons::ICON_FONT).size(16)
                 )
-                    .on_press(Message::SaveNote(rid2, current_note))
+                    .on_press(Message::SubmitCurrentNote)
                     .style(button::primary)
                     .padding(4),
                 "Save",
@@ -619,6 +618,16 @@ fn view_note_editor<'a>(record_id: &str, note_text: &str) -> Element<'a, Message
                     .style(button::secondary)
                     .padding(4),
                 "Cancel",
+                tooltip::Position::Bottom,
+            ).style(tooltip_style),
+            tooltip(
+                button(
+                    text(icons::ICON_DELETE).font(icons::ICON_FONT).size(16)
+                )
+                    .on_press(Message::DeleteCurrentNote)
+                    .style(button::danger)
+                    .padding(4),
+                "Delete note",
                 tooltip::Position::Bottom,
             ).style(tooltip_style),
         ]

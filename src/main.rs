@@ -97,6 +97,8 @@ enum Message {
     OpenNoteEditor(String),
     NoteInputChanged(String, String),
     SaveNote(String, String),
+    SubmitCurrentNote,
+    DeleteCurrentNote,
     OpenMetricEditor(String),
     MetricInputChanged(String, StoredMetrics),
     SaveEditedMetric(String, StoredMetrics),
@@ -828,6 +830,13 @@ impl App {
                 Task::none()
             }
             Message::OpenNoteEditor(record_id) => {
+                // Toggle: close if already editing the same record
+                if let Some((ref current_id, _)) = self.editing_note {
+                    if *current_id == record_id {
+                        self.editing_note = None;
+                        return Task::none();
+                    }
+                }
                 let note = self
                     .current_records
                     .iter()
@@ -855,6 +864,40 @@ impl App {
                         },
                         |()| Message::Noop,
                     );
+                }
+                Task::none()
+            }
+            Message::SubmitCurrentNote => {
+                if let Some((record_id, note)) = self.editing_note.take() {
+                    if let Some(record) = self.current_records.iter_mut().find(|r| r.id == record_id) {
+                        record.note = note;
+                        let record = record.clone();
+                        return Task::perform(
+                            async move {
+                                if let Ok(db) = store::open_db().await {
+                                    let _ = store::update_record(&db, &record).await;
+                                }
+                            },
+                            |()| Message::Noop,
+                        );
+                    }
+                }
+                Task::none()
+            }
+            Message::DeleteCurrentNote => {
+                if let Some((record_id, _)) = self.editing_note.take() {
+                    if let Some(record) = self.current_records.iter_mut().find(|r| r.id == record_id) {
+                        record.note = String::new();
+                        let record = record.clone();
+                        return Task::perform(
+                            async move {
+                                if let Ok(db) = store::open_db().await {
+                                    let _ = store::update_record(&db, &record).await;
+                                }
+                            },
+                            |()| Message::Noop,
+                        );
+                    }
                 }
                 Task::none()
             }
