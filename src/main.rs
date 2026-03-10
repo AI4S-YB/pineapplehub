@@ -1,6 +1,8 @@
 mod correction;
 mod error;
 mod export;
+mod history;
+mod icons;
 mod job;
 mod js_interop;
 mod pipeline;
@@ -11,13 +13,23 @@ mod utils;
 // Re-export init_thread_pool so wasm-bindgen exposes `initThreadPool()` in JS.
 pub use wasm_bindgen_rayon::init_thread_pool;
 
+use std::collections::HashSet;
+
 use crate::{
     error::Error,
     export::{jobs_to_csv, trigger_download},
+    history::{
+        model::{AnalysisRecord, SessionMeta, SessionSummary, StoredMetrics},
+        store::{self, CacheWarningLevel},
+    },
     job::{Job, JobStatus},
     js_interop::FileEntry,
     pipeline::{EncodedImage, FruitletMetrics, Intermediate, Step},
-    ui::{preview::Preview, viewer::Viewer},
+    ui::{
+        history_view::{self, HistoryPanel, Page},
+        preview::Preview,
+        viewer::Viewer,
+    },
     upload::{State, Update, Upload, decode_to_intermediate},
     utils::dynamic_image_to_handle,
 };
@@ -26,8 +38,8 @@ use iced::{
     Element, Function, Length, Subscription, Task,
     time::Instant,
     widget::{
-        button, column, container, grid, row, scrollable, space, stack, text,
-        toggler,
+        button, column, container, grid, image, row, scrollable, space, stack, text,
+        toggler, tooltip,
     },
     window,
 };
@@ -70,8 +82,59 @@ enum Message {
     Close,
     Animate,
     ExportCsv,
+
+    // ── Navigation ──
+    NavigateTo(Page),
+    OpenGitHub,
+
+    // ── History page ──
+    HistoryLoaded(Vec<SessionSummary>),
+    HistorySetPanel(HistoryPanel),
+    ToggleSessionSelected(String, bool),
+    ToggleAllSessions(bool),
+    ToggleSessionStar(String, bool),
+    LoadSelectedRecords,
+    SessionRecordsLoaded(Vec<AnalysisRecord>),
+    ToggleSuspect(String, bool),
+    OpenNoteEditor(String),
+    NoteInputChanged(String, String),
+    SaveNote(String, String),
+    OpenMetricEditor(String),
+    MetricInputChanged(String, StoredMetrics),
+    SaveEditedMetric(String, StoredMetrics),
+    CancelEdit,
+    DeleteSelectedSessions,
+    ConfirmDelete,
+    CancelDelete,
+    SearchQueryChanged(String),
+    ClearAllHistory,
+    ConfirmClearAll,
+    CancelClearAll,
+    DeleteExportedSessions,
+    DismissExportPrompt,
+    PaneResized(iced::widget::pane_grid::ResizeEvent),
+    ExportSelectedSessions,
+    QuickCleanup,
+    CleanupDone(store::CleanupResult),
+    CacheStatus(CacheWarningLevel),
+    DismissCacheWarning,
+    BatchSaved,
+    /// Undo a recent deletion (soft-deleted data).
+    UndoDelete,
+    /// Undo timer expired — commit the deletion.
+    UndoExpired,
+    UndoToastMessage(String),
+
     /// No-op (used for smoke tests)
     Noop,
+}
+
+// ────────────────────────  History Pane  ────────────────────────
+
+#[derive(Clone, Debug)]
+enum HistoryPane {
+    Sidebar,
+    MainPanel,
 }
 
 // ────────────────────────  App State  ────────────────────────
@@ -101,6 +164,48 @@ struct App {
 
     /// Current decode progress (current, total) for the overlay.
     decode_progress: (usize, usize),
+
+    // ── History / Navigation state ──
+    /// Current page (Analysis or History).
+    page: Page,
+
+    /// Session summaries loaded from IndexedDB.
+    sessions: Vec<SessionSummary>,
+    /// Sessions selected via checkbox.
+    selected_sessions: HashSet<String>,
+    /// Records loaded for selected sessions.
+    current_records: Vec<AnalysisRecord>,
+
+    /// Current note editing state: (record_id, current_text).
+    editing_note: Option<(String, String)>,
+    /// Current metric editing state: (record_id, current_metrics).
+    editing_metric: Option<(String, StoredMetrics)>,
+
+    /// Current cache warning level.
+    cache_warning: Option<CacheWarningLevel>,
+
+    /// Undo toast state: (message, timer_active).
+    undo_toast: Option<String>,
+
+    /// Delete confirmation state: session IDs pending deletion.
+    delete_confirm: Option<(Vec<String>, u32)>,
+
+    /// Search query for filtering records by filename.
+    search_query: String,
+
+    /// Clear-all confirmation state.
+    clear_all_confirm: bool,
+
+    /// Export-then-delete prompt.
+    export_delete_prompt: bool,
+    /// Session IDs that were last exported.
+    exported_session_ids: Vec<String>,
+
+    /// Session ID generated for the current batch (None for single-image mode).
+    current_session_id: Option<String>,
+
+    /// Pane grid state for the history sidebar/main panel split.
+    history_panes: iced::widget::pane_grid::State<HistoryPane>,
 }
 
 impl App {
@@ -116,6 +221,28 @@ impl App {
             can_pick_directory: js_interop::has_directory_picker(),
             decoding: false,
             decode_progress: (0, 0),
+            page: Page::default(),
+            sessions: Vec::new(),
+            selected_sessions: HashSet::new(),
+            current_records: Vec::new(),
+            editing_note: None,
+            editing_metric: None,
+            cache_warning: None,
+            undo_toast: None,
+            delete_confirm: None,
+            search_query: String::new(),
+            clear_all_confirm: false,
+            export_delete_prompt: false,
+            exported_session_ids: Vec::new(),
+            current_session_id: None,
+            history_panes: iced::widget::pane_grid::State::with_configuration(
+                iced::widget::pane_grid::Configuration::Split {
+                    axis: iced::widget::pane_grid::Axis::Vertical,
+                    ratio: 0.25,
+                    a: Box::new(iced::widget::pane_grid::Configuration::Pane(HistoryPane::Sidebar)),
+                    b: Box::new(iced::widget::pane_grid::Configuration::Pane(HistoryPane::MainPanel)),
+                },
+            ),
         }
     }
 
@@ -258,10 +385,7 @@ impl App {
 
             // ── Batch processing ──
             Message::BatchStart => {
-                // TODO Phase 2: rayon parallel processing
-                // For now, process images sequentially
                 if let State::Finished(entries) = &self.upload.state {
-                    let entries_clone: Vec<FileEntry> = entries.clone();
                     let num_jobs = self.jobs.len();
 
                     // For single image in debug mode, start pipeline step-by-step
@@ -276,9 +400,14 @@ impl App {
                         }
                     }
 
+                    // Generate session ID for batch mode (≥2 files)
+                    if num_jobs >= 2 {
+                        self.current_session_id = Some(store::generate_id());
+                    } else {
+                        self.current_session_id = None;
+                    }
+
                     // Mark all jobs as Processing and show decoding overlay.
-                    // Return Task::done(StartDecoding) so iced renders the
-                    // overlay BEFORE the synchronous Phase 1 decode blocks.
                     for job in &mut self.jobs {
                         job.status = JobStatus::Processing;
                     }
@@ -363,6 +492,58 @@ impl App {
                         }
                     }
                 }
+
+                // Check if all batch jobs are done — auto-save to history
+                let all_done = self.jobs.iter().all(|j| {
+                    matches!(j.status, JobStatus::Done | JobStatus::Error(_))
+                });
+                if all_done {
+                    if let Some(session_id) = self.current_session_id.take() {
+                        let total_count = self.jobs.len() as u32;
+                        let failed_count = self.jobs.iter()
+                            .filter(|j| matches!(j.status, JobStatus::Error(_)))
+                            .count() as u32;
+
+                        let timestamp = js_sys::Date::now();
+                        let meta = SessionMeta {
+                            session_id: session_id.clone(),
+                            timestamp,
+                            total_count,
+                            success_count: total_count - failed_count,
+                            failed_count,
+                            starred: false,
+                        };
+
+                        let records: Vec<AnalysisRecord> = self.jobs.iter()
+                            .filter_map(|job| {
+                                let metrics = job.metrics.as_ref()?;
+                                Some(AnalysisRecord {
+                                    id: store::generate_id(),
+                                    session_id: session_id.clone(),
+                                    timestamp,
+                                    filename: job.filename.clone(),
+                                    metrics: history::model::StoredMetrics::from(metrics),
+                                    suspect: false,
+                                    note: String::new(),
+                                })
+                            })
+                            .collect();
+
+                        return Task::perform(
+                            async move {
+                                match store::open_db().await {
+                                    Ok(db) => match store::save_session(&db, &meta, &records).await {
+                                        Ok(()) => log::info!("Batch saved successfully"),
+                                        Err(e) => log::error!("Failed to save batch: {e:?}"),
+                                    },
+                                    Err(e) => log::error!("Failed to open DB for batch save: {e:?}"),
+                                }
+                            },
+                            |()| Message::BatchSaved,
+                        );
+                    }
+                }
+
                 Task::none()
             }
             Message::Noop => Task::none(),
@@ -423,10 +604,567 @@ impl App {
                 trigger_download(&csv, "pineapple_results.csv");
                 Task::none()
             }
+
+            // ── Navigation ──
+            Message::NavigateTo(page) => {
+                self.editing_note = None;
+                self.editing_metric = None;
+                if matches!(page, Page::History { .. }) {
+                    // Load sessions when navigating to History
+                    self.page = page;
+                    return Task::perform(
+                        async {
+                            let db = store::open_db().await.ok()?;
+                            store::load_session_summaries(&db).await.ok()
+                        },
+                        |opt| Message::HistoryLoaded(opt.unwrap_or_default()),
+                    );
+                }
+                self.page = page;
+                Task::none()
+            }
+            Message::OpenGitHub => {
+                // Open GitHub repository in new tab
+                if let Some(window) = web_sys::window() {
+                    let _ = window.open_with_url_and_target(
+                        "https://github.com/TT-Industry/pineapplehub",
+                        "_blank",
+                    );
+                }
+                Task::none()
+            }
+
+            // ── History page ──
+            Message::HistoryLoaded(summaries) => {
+                self.sessions = summaries;
+                // Also load cache status
+                Task::perform(
+                    async {
+                        let db = store::open_db().await.ok()?;
+                        store::check_cache_status(&db).await.ok()
+                    },
+                    |opt| Message::CacheStatus(opt.unwrap_or(CacheWarningLevel::Ok)),
+                )
+            }
+            Message::HistorySetPanel(panel) => {
+                if let Page::History {
+                    panel: current_panel,
+                    sidebar_open,
+                } = &mut self.page
+                {
+                    if *current_panel == panel {
+                        // Toggle sidebar when clicking the same panel icon
+                        *sidebar_open = !*sidebar_open;
+                    } else {
+                        *current_panel = panel;
+                        *sidebar_open = true;
+                    }
+                }
+                Task::none()
+            }
+            Message::ToggleSessionSelected(sid, checked) => {
+                log::info!("ToggleSessionSelected: sid={sid}, checked={checked}");
+                if checked {
+                    self.selected_sessions.insert(sid);
+                } else {
+                    self.selected_sessions.remove(&sid);
+                }
+                // Auto-load records for selected sessions
+                let sids: Vec<String> = self.selected_sessions.iter().cloned().collect();
+                log::info!("Loading records for {} session(s)", sids.len());
+                Task::perform(
+                    async move {
+                        let db = match store::open_db().await {
+                            Ok(db) => db,
+                            Err(e) => {
+                                log::error!("Failed to open DB: {e:?}");
+                                return Vec::new();
+                            }
+                        };
+                        match store::load_records_for_sessions(&db, &sids).await {
+                            Ok(records) => {
+                                log::info!("Loaded {} records", records.len());
+                                records
+                            }
+                            Err(e) => {
+                                log::error!("Failed to load records: {e:?}");
+                                Vec::new()
+                            }
+                        }
+                    },
+                    Message::SessionRecordsLoaded,
+                )
+            }
+            Message::ToggleAllSessions(checked) => {
+                if checked {
+                    self.selected_sessions = self
+                        .sessions
+                        .iter()
+                        .map(|s| s.session_id.clone())
+                        .collect();
+                } else {
+                    self.selected_sessions.clear();
+                }
+                let sids: Vec<String> = self.selected_sessions.iter().cloned().collect();
+                Task::perform(
+                    async move {
+                        let db = match store::open_db().await {
+                            Ok(db) => db,
+                            Err(e) => {
+                                log::error!("Failed to open DB: {e:?}");
+                                return Vec::new();
+                            }
+                        };
+                        store::load_records_for_sessions(&db, &sids).await.unwrap_or_default()
+                    },
+                    Message::SessionRecordsLoaded,
+                )
+            }
+            Message::ToggleSessionStar(sid, starred) => {
+                // Update in-memory
+                if let Some(session) = self.sessions.iter_mut().find(|s| s.session_id == sid) {
+                    session.starred = starred;
+                }
+                // Persist to IndexedDB
+                Task::perform(
+                    async move {
+                        if let Ok(db) = store::open_db().await {
+                            let _ = store::toggle_session_star(&db, &sid, starred).await;
+                        }
+                    },
+                    |()| Message::Noop,
+                )
+            }
+            Message::LoadSelectedRecords => {
+                let sids: Vec<String> = self.selected_sessions.iter().cloned().collect();
+                Task::perform(
+                    async move {
+                        let db = match store::open_db().await {
+                            Ok(db) => db,
+                            Err(e) => {
+                                log::error!("Failed to open DB: {e:?}");
+                                return Vec::new();
+                            }
+                        };
+                        store::load_records_for_sessions(&db, &sids).await.unwrap_or_default()
+                    },
+                    Message::SessionRecordsLoaded,
+                )
+            }
+            Message::SessionRecordsLoaded(records) => {
+                log::info!("SessionRecordsLoaded: {} records", records.len());
+                self.current_records = records;
+                Task::none()
+            }
+            Message::ToggleSuspect(record_id, suspect) => {
+                if let Some(record) = self.current_records.iter_mut().find(|r| r.id == record_id) {
+                    record.suspect = suspect;
+                    let record = record.clone();
+
+                    // Sync suspect_count in session summaries
+                    let session_id = record.session_id.clone();
+                    if let Some(session) = self.sessions.iter_mut().find(|s| s.session_id == session_id) {
+                        session.suspect_count = self
+                            .current_records
+                            .iter()
+                            .filter(|r| r.session_id == session_id && r.suspect)
+                            .count() as u32;
+                    }
+
+                    return Task::perform(
+                        async move {
+                            if let Ok(db) = store::open_db().await {
+                                let _ = store::update_record(&db, &record).await;
+                            }
+                        },
+                        |()| Message::Noop,
+                    );
+                }
+                Task::none()
+            }
+            Message::OpenNoteEditor(record_id) => {
+                let note = self
+                    .current_records
+                    .iter()
+                    .find(|r| r.id == record_id)
+                    .map(|r| r.note.clone())
+                    .unwrap_or_default();
+                self.editing_note = Some((record_id, note));
+                self.editing_metric = None;
+                Task::none()
+            }
+            Message::NoteInputChanged(record_id, val) => {
+                self.editing_note = Some((record_id, val));
+                Task::none()
+            }
+            Message::SaveNote(record_id, note) => {
+                if let Some(record) = self.current_records.iter_mut().find(|r| r.id == record_id) {
+                    record.note = note;
+                    let record = record.clone();
+                    self.editing_note = None;
+                    return Task::perform(
+                        async move {
+                            if let Ok(db) = store::open_db().await {
+                                let _ = store::update_record(&db, &record).await;
+                            }
+                        },
+                        |()| Message::Noop,
+                    );
+                }
+                Task::none()
+            }
+            Message::OpenMetricEditor(record_id) => {
+                let metrics = self
+                    .current_records
+                    .iter()
+                    .find(|r| r.id == record_id)
+                    .map(|r| r.metrics.clone());
+                if let Some(m) = metrics {
+                    self.editing_metric = Some((record_id, m));
+                    self.editing_note = None;
+                }
+                Task::none()
+            }
+            Message::MetricInputChanged(record_id, metrics) => {
+                self.editing_metric = Some((record_id, metrics));
+                Task::none()
+            }
+            Message::SaveEditedMetric(record_id, mut metrics) => {
+                metrics.manually_edited = true;
+                if let Some(record) = self.current_records.iter_mut().find(|r| r.id == record_id) {
+                    record.metrics = metrics;
+                    // Auto-clear suspect on edit
+                    record.suspect = false;
+                    let record = record.clone();
+                    self.editing_metric = None;
+                    return Task::perform(
+                        async move {
+                            if let Ok(db) = store::open_db().await {
+                                let _ = store::update_record(&db, &record).await;
+                            }
+                        },
+                        |()| Message::Noop,
+                    );
+                }
+                Task::none()
+            }
+            Message::CancelEdit => {
+                self.editing_note = None;
+                self.editing_metric = None;
+                Task::none()
+            }
+            Message::DeleteSelectedSessions => {
+                // Show confirmation instead of deleting immediately
+                let sids: Vec<String> = self.selected_sessions.iter().cloned().collect();
+                if sids.is_empty() {
+                    return Task::none();
+                }
+                let record_count = self
+                    .current_records
+                    .iter()
+                    .filter(|r| sids.contains(&r.session_id))
+                    .count() as u32;
+                self.delete_confirm = Some((sids, record_count));
+                Task::none()
+            }
+            Message::ConfirmDelete => {
+                if let Some((sids, _)) = self.delete_confirm.take() {
+                    let count = sids.len();
+                    self.selected_sessions.clear();
+                    self.current_records.retain(|r| !sids.contains(&r.session_id));
+                    self.sessions.retain(|s| !sids.contains(&s.session_id));
+
+                    return Task::perform(
+                        async move {
+                            if let Ok(db) = store::open_db().await {
+                                let deleted =
+                                    store::delete_sessions(&db, &sids).await.unwrap_or(0);
+                                return format!(
+                                    "Deleted {count} session(s) ({deleted} records)"
+                                );
+                            }
+                            String::new()
+                        },
+                        Message::UndoToastMessage,
+                    );
+                }
+                Task::none()
+            }
+            Message::CancelDelete => {
+                self.delete_confirm = None;
+                Task::none()
+            }
+            Message::SearchQueryChanged(query) => {
+                self.search_query = query;
+                Task::none()
+            }
+            Message::ClearAllHistory => {
+                self.clear_all_confirm = true;
+                Task::none()
+            }
+            Message::ConfirmClearAll => {
+                self.clear_all_confirm = false;
+                let sids: Vec<String> = self.sessions.iter().map(|s| s.session_id.clone()).collect();
+                let count = sids.len();
+                self.sessions.clear();
+                self.selected_sessions.clear();
+                self.current_records.clear();
+                self.search_query.clear();
+
+                Task::perform(
+                    async move {
+                        if let Ok(db) = store::open_db().await {
+                            let deleted = store::delete_sessions(&db, &sids).await.unwrap_or(0);
+                            return format!(
+                                "Cleared all history: {count} session(s) ({deleted} records)"
+                            );
+                        }
+                        String::new()
+                    },
+                    Message::UndoToastMessage,
+                )
+            }
+            Message::CancelClearAll => {
+                self.clear_all_confirm = false;
+                Task::none()
+            }
+            Message::ExportSelectedSessions => {
+                // Export selected sessions' records as CSV
+                let records = &self.current_records;
+                if !records.is_empty() {
+                    let mut csv = String::from("filename,height_mm,width_mm,volume_mm3,a_eq,b_eq,surface_area,n_total\n");
+                    for r in records {
+                        let m = &r.metrics;
+                        csv += &format!(
+                            "{},{:.2},{:.2},{:.0},{},{},{},{}\n",
+                            r.filename,
+                            m.major_length,
+                            m.minor_length,
+                            m.volume,
+                            m.a_eq.map_or("-".into(), |v| format!("{v:.2}")),
+                            m.b_eq.map_or("-".into(), |v| format!("{v:.2}")),
+                            m.surface_area.map_or("-".into(), |v| format!("{v:.0}")),
+                            m.n_total.map_or("-".into(), |v| format!("{v}")),
+                        );
+                    }
+                    trigger_download(&csv, "pineapple_history.csv");
+                    // Remember which sessions were exported and show prompt
+                    self.exported_session_ids = self.selected_sessions.iter().cloned().collect();
+                    self.export_delete_prompt = true;
+                }
+                Task::none()
+            }
+            Message::DeleteExportedSessions => {
+                self.export_delete_prompt = false;
+                let sids = std::mem::take(&mut self.exported_session_ids);
+                if sids.is_empty() {
+                    return Task::none();
+                }
+                let count = sids.len();
+                self.selected_sessions.clear();
+                self.current_records.retain(|r| !sids.contains(&r.session_id));
+                self.sessions.retain(|s| !sids.contains(&s.session_id));
+
+                Task::perform(
+                    async move {
+                        if let Ok(db) = store::open_db().await {
+                            let deleted = store::delete_sessions(&db, &sids).await.unwrap_or(0);
+                            return format!(
+                                "Deleted {count} exported session(s) ({deleted} records)"
+                            );
+                        }
+                        String::new()
+                    },
+                    Message::UndoToastMessage,
+                )
+            }
+            Message::DismissExportPrompt => {
+                self.export_delete_prompt = false;
+                self.exported_session_ids.clear();
+                Task::none()
+            }
+            Message::PaneResized(iced::widget::pane_grid::ResizeEvent { split, ratio }) => {
+                self.history_panes.resize(split, ratio);
+                Task::none()
+            }
+            Message::QuickCleanup => Task::perform(
+                async {
+                    let db = store::open_db().await.ok()?;
+                    store::cleanup_oldest_unstarred(&db).await.ok()
+                },
+                |opt| {
+                    if let Some(result) = opt {
+                        Message::CleanupDone(result)
+                    } else {
+                        Message::Noop
+                    }
+                },
+            ),
+            Message::CleanupDone(result) => {
+                self.undo_toast = Some(format!(
+                    "Cleaned up {} session(s) ({} records)",
+                    result.sessions_deleted, result.records_deleted
+                ));
+                // Reload sessions
+                Task::perform(
+                    async {
+                        let db = store::open_db().await.ok()?;
+                        store::load_session_summaries(&db).await.ok()
+                    },
+                    |opt| Message::HistoryLoaded(opt.unwrap_or_default()),
+                )
+            }
+            Message::CacheStatus(level) => {
+                self.cache_warning = if level == CacheWarningLevel::Ok {
+                    None
+                } else {
+                    Some(level)
+                };
+                Task::none()
+            }
+            Message::DismissCacheWarning => {
+                self.cache_warning = None;
+                Task::none()
+            }
+            Message::BatchSaved => {
+                // Check cache status after saving
+                Task::perform(
+                    async {
+                        let db = store::open_db().await.ok()?;
+                        store::check_cache_status(&db).await.ok()
+                    },
+                    |opt| Message::CacheStatus(opt.unwrap_or(CacheWarningLevel::Ok)),
+                )
+            }
+            Message::UndoDelete => {
+                // TODO: implement soft-delete undo (for v2)
+                self.undo_toast = None;
+                Task::none()
+            }
+            Message::UndoExpired => {
+                self.undo_toast = None;
+                Task::none()
+            }
+            Message::UndoToastMessage(msg) => {
+                if !msg.is_empty() {
+                    self.undo_toast = Some(msg);
+                }
+                Task::none()
+            }
         }
     }
 
     fn view(&self) -> Element<'_, Message> {
+        // ── Title bar ──
+        let favicon_handle = image::Handle::from_bytes(
+            include_bytes!("../assets/favicon.png").as_slice(),
+        );
+        let title_bar = container(
+            row![
+                button(
+                    row![
+                        image(favicon_handle).width(20).height(20),
+                        text("PineappleHub").size(16),
+                    ]
+                    .spacing(6)
+                    .align_y(iced::Alignment::Center),
+                )
+                .on_press(Message::NavigateTo(Page::Analysis))
+                .style(button::text)
+                .padding(4),
+                space::horizontal().width(Length::Fill),
+                tooltip(
+                    button(text(icons::ICON_HELP).font(icons::ICON_FONT).size(18))
+                        .style(button::text)
+                        .padding(4),
+                    "Help",
+                    tooltip::Position::Bottom,
+                ),
+                tooltip(
+                    button(text(icons::ICON_HISTORY).font(icons::ICON_FONT).size(18))
+                        .on_press(Message::NavigateTo(Page::History {
+                            panel: HistoryPanel::Records,
+                            sidebar_open: true,
+                        }))
+                        .style(button::text)
+                        .padding(4),
+                    "History",
+                    tooltip::Position::Bottom,
+                ),
+                tooltip(
+                    button(
+                        // GitHub is a brand logo absent from Material Symbols.
+                        // include_bytes! PNG is the most pragmatic approach:
+                        // tiny payload, zero-latency compile-time embed, no extra font.
+                        // An alternative (SVG path via iced canvas) offers no real benefit.
+                        image(image::Handle::from_bytes(
+                            include_bytes!("../assets/github-mark.png").as_slice(),
+                        ))
+                        .width(18)
+                        .height(18),
+                    )
+                    .on_press(Message::OpenGitHub)
+                    .style(button::text)
+                    .padding(4),
+                    "GitHub Repository",
+                    tooltip::Position::Bottom,
+                ),
+            ]
+            .spacing(4)
+            .padding([8, 12])
+            .align_y(iced::Alignment::Center),
+        )
+        .style(container::bordered_box)
+        .width(Length::Fill);
+
+        // ── Page content ──
+        let page_content: Element<'_, Message> = match &self.page {
+            Page::Analysis => self.view_analysis(),
+            Page::History { panel, sidebar_open } => self.view_history(panel, *sidebar_open),
+        };
+
+        let mut main_layout = column![title_bar, page_content].spacing(0);
+
+        // ── Undo toast ──
+        if let Some(msg) = &self.undo_toast {
+            main_layout = main_layout.push(history_view::view_undo_toast(msg));
+        }
+
+        let viewer = self.viewer.view(self.now);
+        let mut layers = stack![main_layout, viewer];
+
+        // ── Export-then-delete dialog (centered overlay) ──
+        if self.export_delete_prompt {
+            layers = layers.push(history_view::view_export_delete_prompt());
+        }
+
+        // Full-screen decoding overlay — blocks interaction visually
+        if self.decoding {
+            let (current, total) = self.decode_progress;
+            let progress_text = if total > 0 {
+                format!("⏳ Decoding images… ({}/{})", current + 1, total)
+            } else {
+                "⏳ Decoding images…".to_string()
+            };
+            let overlay = container(
+                text(progress_text).size(24)
+            )
+            .style(|_theme: &iced::Theme| container::Style {
+                background: Some(iced::Background::Color(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.6))),
+                text_color: Some(iced::Color::WHITE),
+                ..Default::default()
+            })
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .center(Length::Fill);
+            layers = layers.push(overlay);
+        }
+
+        layers.into()
+    }
+
+    /// Analysis page — the original 3-column layout.
+    fn view_analysis(&self) -> Element<'_, Message> {
         // ── Left column: file input + file list ──
         let mut left_col = column![].spacing(10).width(Length::FillPortion(2));
 
@@ -514,7 +1252,6 @@ impl App {
                         .padding(40),
                 );
             } else if !self.intermediates.is_empty() {
-                // Show step-by-step pipeline cards (skip Original — shown in left column)
                 let cards: Vec<_> = self
                     .intermediates
                     .iter()
@@ -529,7 +1266,6 @@ impl App {
                     ),
                 );
             } else if let Some(job) = self.selected_job.and_then(|id| self.jobs.get(id)) {
-                // Batch mode: show selected job status summary
                 let status_text = match &job.status {
                     JobStatus::Queued => "Queued".to_string(),
                     JobStatus::Processing => "Processing...".to_string(),
@@ -580,7 +1316,6 @@ impl App {
         // ── Right column: results table ──
         let mut right_col = column![text("Results").size(24)].spacing(8).width(Length::FillPortion(5));
 
-        // Table header
         let header = row![
             text("File").width(Length::FillPortion(3)),
             text("Height").width(Length::FillPortion(2)),
@@ -594,7 +1329,6 @@ impl App {
         .spacing(4);
         right_col = right_col.push(header);
 
-        // Table rows
         let completed_jobs: Vec<&Job> = self
             .jobs
             .iter()
@@ -627,13 +1361,11 @@ impl App {
             right_col = right_col.push(scrollable(rows));
         }
 
-        // Export button
         if !completed_jobs.is_empty() {
             right_col = right_col.push(button("Export CSV").on_press(Message::ExportCsv));
         }
 
-        // ── Assemble layout ──
-        let content = container(
+        container(
             row![
                 scrollable(left_col),
                 mid_col,
@@ -641,34 +1373,98 @@ impl App {
             ]
             .spacing(10)
             .padding(10),
-        );
+        )
+        .into()
+    }
 
-        let viewer = self.viewer.view(self.now);
-        let mut layers = stack![content, viewer];
+    /// History page — Activity Bar + Sessions Sidebar + Main Panel.
+    fn view_history(&self, panel: &HistoryPanel, sidebar_open: bool) -> Element<'_, Message> {
+        use iced::widget::pane_grid;
 
-        // Full-screen decoding overlay — blocks interaction visually
-        if self.decoding {
-            let (current, total) = self.decode_progress;
-            let progress_text = if total > 0 {
-                format!("⏳ Decoding images… ({}/{})", current + 1, total)
-            } else {
-                "⏳ Decoding images…".to_string()
-            };
-            let overlay = container(
-                text(progress_text).size(24)
-            )
-            .style(|_theme: &iced::Theme| container::Style {
-                background: Some(iced::Background::Color(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.6))),
-                text_color: Some(iced::Color::WHITE),
-                ..Default::default()
+        let mut row_layout = row![].spacing(0).height(Length::Fill);
+
+        // Activity Bar (always visible)
+        row_layout = row_layout.push(history_view::view_activity_bar(panel, sidebar_open));
+
+        if sidebar_open {
+            // Use pane_grid for resizable sidebar/main panel
+            let sessions = &self.sessions;
+            let selected_sessions = &self.selected_sessions;
+            let cache_warning = &self.cache_warning;
+            let delete_confirm = &self.delete_confirm;
+            let clear_all_confirm = self.clear_all_confirm;
+            let current_records = &self.current_records;
+            let editing_note = &self.editing_note;
+            let editing_metric = &self.editing_metric;
+            let search_query = &self.search_query;
+
+            let pg = pane_grid(&self.history_panes, move |_pane, state, _is_maximized| {
+                match state {
+                    HistoryPane::Sidebar => {
+                        pane_grid::Content::new(
+                            history_view::view_sessions_sidebar(
+                                sessions,
+                                selected_sessions,
+                                cache_warning,
+                                delete_confirm,
+                                clear_all_confirm,
+                            ),
+                        )
+                        .style(|_theme: &iced::Theme| {
+                            container::Style {
+                                border: iced::Border {
+                                    color: iced::Color::from_rgba(0.5, 0.5, 0.5, 0.3),
+                                    width: 1.0,
+                                    radius: 0.into(),
+                                },
+                                ..Default::default()
+                            }
+                        })
+                    }
+                    HistoryPane::MainPanel => {
+                        let main_panel: Element<'_, Message> = match panel {
+                            HistoryPanel::Records => history_view::view_records_panel(
+                                current_records,
+                                selected_sessions.len(),
+                                editing_note,
+                                editing_metric,
+                                search_query,
+                            ),
+                            HistoryPanel::Statistics => {
+                                history_view::view_statistics_panel(selected_sessions.len())
+                            }
+                        };
+                        pane_grid::Content::new(main_panel)
+                    }
+                }
             })
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center(Length::Fill);
-            layers = layers.push(overlay);
+            .on_resize(6, Message::PaneResized)
+            .height(Length::Fill);
+
+            row_layout = row_layout.push(pg);
+        } else {
+            // Sidebar collapsed — show only main panel
+            let main_panel: Element<'_, Message> = match panel {
+                HistoryPanel::Records => history_view::view_records_panel(
+                    &self.current_records,
+                    self.selected_sessions.len(),
+                    &self.editing_note,
+                    &self.editing_metric,
+                    &self.search_query,
+                ),
+                HistoryPanel::Statistics => {
+                    history_view::view_statistics_panel(self.selected_sessions.len())
+                }
+            };
+
+            row_layout = row_layout.push(
+                container(main_panel)
+                    .width(Length::Fill)
+                    .height(Length::Fill),
+            );
         }
 
-        layers.into()
+        row_layout.into()
     }
 }
 
@@ -687,5 +1483,6 @@ fn main() -> iced::Result {
         .centered()
         .font(NOTO_EMOJI_BYTES)
         .font(NOTO_SANS_SC_BYTES)
+        .font(icons::ICON_FONT_BYTES)
         .run()
 }
