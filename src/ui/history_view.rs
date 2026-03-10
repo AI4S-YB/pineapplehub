@@ -792,17 +792,20 @@ fn view_cache_warning(warning: &CacheWarningLevel) -> Element<'_, Message> {
 /// Render the undo toast at the bottom of the screen.
 pub(crate) fn view_undo_toast<'a>(
     message: &'a str,
+    countdown_secs: u8,
 ) -> Element<'a, Message> {
     container(
         row![
             text(message).size(13),
             space::horizontal().width(Length::Fill),
+            text(format!("({countdown_secs}s)")).size(12),
             button(text("Undo").size(12))
                 .on_press(Message::UndoDelete)
                 .style(button::primary),
         ]
         .spacing(8)
-        .padding(8),
+        .padding(8)
+        .align_y(iced::Alignment::Center),
     )
     .style(container::bordered_box)
     .width(Length::Fill)

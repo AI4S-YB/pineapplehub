@@ -124,6 +124,8 @@ enum Message {
     /// Undo timer expired — commit the deletion.
     UndoExpired,
     UndoToastMessage(String),
+    /// Undo countdown tick (every 1s).
+    UndoTick,
 
     /// No-op (used for smoke tests)
     Noop,
@@ -135,6 +137,13 @@ enum Message {
 enum HistoryPane {
     Sidebar,
     MainPanel,
+}
+
+/// Data cached during soft-delete, restorable via Undo.
+struct PendingDelete {
+    sessions: Vec<SessionSummary>,
+    records: Vec<AnalysisRecord>,
+    sids: Vec<String>,
 }
 
 // ────────────────────────  App State  ────────────────────────
@@ -184,8 +193,14 @@ struct App {
     /// Current cache warning level.
     cache_warning: Option<CacheWarningLevel>,
 
-    /// Undo toast state: (message, timer_active).
+    /// Undo toast message text.
     undo_toast: Option<String>,
+
+    /// Countdown seconds remaining for undo (None = no active undo).
+    undo_countdown: Option<u8>,
+
+    /// Soft-deleted data awaiting commit or undo.
+    pending_delete: Option<PendingDelete>,
 
     /// Delete confirmation state: session IDs pending deletion.
     delete_confirm: Option<(Vec<String>, u32)>,
@@ -229,6 +244,8 @@ impl App {
             editing_metric: None,
             cache_warning: None,
             undo_toast: None,
+            undo_countdown: None,
+            pending_delete: None,
             delete_confirm: None,
             search_query: String::new(),
             clear_all_confirm: false,
@@ -291,11 +308,21 @@ impl App {
             || self.viewer.is_animating(self.now)
             || self.upload.is_animating(self.now);
 
+        let mut subs = Vec::new();
+
         if is_animating {
-            window::frames().map(|_| Message::Animate)
-        } else {
-            Subscription::none()
+            subs.push(window::frames().map(|_| Message::Animate));
         }
+
+        // Undo countdown tick (1 per second)
+        if self.undo_countdown.is_some() {
+            subs.push(
+                iced::time::every(std::time::Duration::from_secs(1))
+                    .map(|_| Message::UndoTick),
+            );
+        }
+
+        Subscription::batch(subs)
     }
 
     fn update(&mut self, message: Message, now: Instant) -> Task<Message> {
@@ -870,23 +897,34 @@ impl App {
             Message::ConfirmDelete => {
                 if let Some((sids, _)) = self.delete_confirm.take() {
                     let count = sids.len();
+                    // Soft-delete: remove from view, cache for undo
+                    let deleted_sessions: Vec<_> = self.sessions
+                        .iter()
+                        .filter(|s| sids.contains(&s.session_id))
+                        .cloned()
+                        .collect();
+                    let deleted_records: Vec<_> = self.current_records
+                        .iter()
+                        .filter(|r| sids.contains(&r.session_id))
+                        .cloned()
+                        .collect();
+                    let record_count = deleted_records.len();
+
                     self.selected_sessions.clear();
                     self.current_records.retain(|r| !sids.contains(&r.session_id));
                     self.sessions.retain(|s| !sids.contains(&s.session_id));
 
-                    return Task::perform(
-                        async move {
-                            if let Ok(db) = store::open_db().await {
-                                let deleted =
-                                    store::delete_sessions(&db, &sids).await.unwrap_or(0);
-                                return format!(
-                                    "Deleted {count} session(s) ({deleted} records)"
-                                );
-                            }
-                            String::new()
-                        },
-                        Message::UndoToastMessage,
-                    );
+                    self.pending_delete = Some(PendingDelete {
+                        sessions: deleted_sessions,
+                        records: deleted_records,
+                        sids: sids.clone(),
+                    });
+                    self.undo_toast = Some(format!(
+                        "Deleted {count} session(s) ({record_count} records)"
+                    ));
+                    self.undo_countdown = Some(5);
+
+                    // Countdown is driven by subscription tick, no gloo timer needed
                 }
                 Task::none()
             }
@@ -1037,12 +1075,41 @@ impl App {
                 )
             }
             Message::UndoDelete => {
-                // TODO: implement soft-delete undo (for v2)
+                // Restore soft-deleted sessions/records
+                if let Some(pending) = self.pending_delete.take() {
+                    self.sessions.extend(pending.sessions);
+                    self.current_records.extend(pending.records);
+                    self.sessions.sort_by(|a, b| b.timestamp.partial_cmp(&a.timestamp).unwrap_or(std::cmp::Ordering::Equal));
+                }
                 self.undo_toast = None;
+                self.undo_countdown = None;
                 Task::none()
             }
             Message::UndoExpired => {
+                // Commit the deletion to IndexedDB
                 self.undo_toast = None;
+                self.undo_countdown = None;
+                if let Some(pending) = self.pending_delete.take() {
+                    let sids = pending.sids;
+                    return Task::perform(
+                        async move {
+                            if let Ok(db) = store::open_db().await {
+                                let _ = store::delete_sessions(&db, &sids).await;
+                            }
+                        },
+                        |()| Message::Noop,
+                    );
+                }
+                Task::none()
+            }
+            Message::UndoTick => {
+                if let Some(ref mut count) = self.undo_countdown {
+                    if *count <= 1 {
+                        // Time's up — trigger commit
+                        return self.update(Message::UndoExpired, self.now);
+                    }
+                    *count -= 1;
+                }
                 Task::none()
             }
             Message::UndoToastMessage(msg) => {
@@ -1126,8 +1193,8 @@ impl App {
         let mut main_layout = column![title_bar, page_content].spacing(0);
 
         // ── Undo toast ──
-        if let Some(msg) = &self.undo_toast {
-            main_layout = main_layout.push(history_view::view_undo_toast(msg));
+        if let (Some(msg), Some(cd)) = (&self.undo_toast, self.undo_countdown) {
+            main_layout = main_layout.push(history_view::view_undo_toast(msg, cd));
         }
 
         let viewer = self.viewer.view(self.now);
