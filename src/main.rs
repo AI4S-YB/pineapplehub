@@ -44,9 +44,7 @@ use iced::{
     window,
 };
 
-/// Noto Emoji font bytes (monochrome, variable weight).
-const NOTO_EMOJI_BYTES: &[u8] = include_bytes!("../assets/NotoEmoji-Regular.ttf");
-/// Noto Sans SC font bytes (CJK Simplified Chinese) for Chinese filename display.
+/// Noto Sans SC font bytes — subset for CJK display. See `assets/README.md` for regeneration.
 const NOTO_SANS_SC_BYTES: &[u8] = include_bytes!("../assets/NotoSansSC-Regular.ttf");
 
 // ────────────────────────  Messages  ────────────────────────
@@ -113,6 +111,7 @@ enum Message {
     DeleteExportedSessions,
     DismissExportPrompt,
     PaneResized(iced::widget::pane_grid::ResizeEvent),
+    SortBy(SortColumn),
     ExportSelectedSessions,
     QuickCleanup,
     CleanupDone(store::CleanupResult),
@@ -144,6 +143,19 @@ struct PendingDelete {
     sessions: Vec<SessionSummary>,
     records: Vec<AnalysisRecord>,
     sids: Vec<String>,
+}
+
+/// Column by which records can be sorted.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum SortColumn {
+    Filename,
+    Height,
+    Width,
+    Volume,
+    Aeq,
+    Beq,
+    SurfaceArea,
+    NTotal,
 }
 
 // ────────────────────────  App State  ────────────────────────
@@ -208,6 +220,10 @@ struct App {
     /// Search query for filtering records by filename.
     search_query: String,
 
+    /// Current sort column and direction for records table.
+    sort_column: Option<SortColumn>,
+    sort_ascending: bool,
+
     /// Clear-all confirmation state.
     clear_all_confirm: bool,
 
@@ -248,6 +264,8 @@ impl App {
             pending_delete: None,
             delete_confirm: None,
             search_query: String::new(),
+            sort_column: None,
+            sort_ascending: true,
             clear_all_confirm: false,
             export_delete_prompt: false,
             exported_session_ids: Vec::new(),
@@ -936,6 +954,15 @@ impl App {
                 self.search_query = query;
                 Task::none()
             }
+            Message::SortBy(col) => {
+                if self.sort_column == Some(col) {
+                    self.sort_ascending = !self.sort_ascending;
+                } else {
+                    self.sort_column = Some(col);
+                    self.sort_ascending = true;
+                }
+                Task::none()
+            }
             Message::ClearAllHistory => {
                 self.clear_all_confirm = true;
                 Task::none()
@@ -1209,12 +1236,17 @@ impl App {
         if self.decoding {
             let (current, total) = self.decode_progress;
             let progress_text = if total > 0 {
-                format!("⏳ Decoding images… ({}/{})", current + 1, total)
+                format!("Decoding images ({}/{})", current + 1, total)
             } else {
-                "⏳ Decoding images…".to_string()
+                "Decoding images...".to_string()
             };
             let overlay = container(
-                text(progress_text).size(24)
+                row![
+                    text(icons::ICON_HOURGLASS_TOP).font(icons::ICON_FONT).size(24),
+                    text(progress_text).size(24),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
             )
             .style(|_theme: &iced::Theme| container::Style {
                 background: Some(iced::Background::Color(iced::Color::from_rgba(0.0, 0.0, 0.0, 0.6))),
@@ -1270,14 +1302,14 @@ impl App {
             // Multiple files: name + status
             let file_list = column(self.jobs.iter().map(|job| {
                 let icon = match &job.status {
-                    JobStatus::Queued => "\u{23f3}",
-                    JobStatus::Processing => "\u{1f504}",
-                    JobStatus::Done => "\u{2705}",
-                    JobStatus::Error(_) => "\u{274c}",
+                    JobStatus::Queued => icons::ICON_HOURGLASS,
+                    JobStatus::Processing => icons::ICON_SYNC,
+                    JobStatus::Done => icons::ICON_CHECK_CIRCLE,
+                    JobStatus::Error(_) => icons::ICON_ERROR,
                 };
                 let is_selected = self.selected_job == Some(job.id);
                 let row_content: Element<'_, Message> = row![
-                    text(icon),
+                    text(icon).font(icons::ICON_FONT).size(14),
                     text(&job.filename).width(Length::Fill),
                 ]
                 .spacing(8)
@@ -1464,6 +1496,8 @@ impl App {
             let editing_note = &self.editing_note;
             let editing_metric = &self.editing_metric;
             let search_query = &self.search_query;
+            let sort_column = self.sort_column;
+            let sort_ascending = self.sort_ascending;
 
             let pg = pane_grid(&self.history_panes, move |_pane, state, _is_maximized| {
                 match state {
@@ -1496,6 +1530,8 @@ impl App {
                                 editing_note,
                                 editing_metric,
                                 search_query,
+                                sort_column,
+                                sort_ascending,
                             ),
                             HistoryPanel::Statistics => {
                                 history_view::view_statistics_panel(selected_sessions.len())
@@ -1518,6 +1554,8 @@ impl App {
                     &self.editing_note,
                     &self.editing_metric,
                     &self.search_query,
+                    self.sort_column,
+                    self.sort_ascending,
                 ),
                 HistoryPanel::Statistics => {
                     history_view::view_statistics_panel(self.selected_sessions.len())
@@ -1548,7 +1586,6 @@ fn main() -> iced::Result {
 
     iced::application::timed(App::new, App::update, App::subscription, App::view)
         .centered()
-        .font(NOTO_EMOJI_BYTES)
         .font(NOTO_SANS_SC_BYTES)
         .font(icons::ICON_FONT_BYTES)
         .run()

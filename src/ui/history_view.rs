@@ -3,6 +3,7 @@
 //! Uses a two-column layout (sidebar + panel) with an activity bar on the far left.
 
 use std::collections::HashSet;
+use crate::SortColumn;
 
 use iced::{
     Element, Length,
@@ -246,7 +247,7 @@ pub(crate) fn view_sessions_sidebar<'a>(
     }
 
     // Bottom buttons
-    let mut bottom = column![].spacing(4).padding(4);
+    let mut bottom = column![].spacing(4).padding([4, 8]);
 
     if !selected.is_empty() {
         bottom = bottom.push(
@@ -270,19 +271,17 @@ pub(crate) fn view_sessions_sidebar<'a>(
             .width(Length::Fill),
     );
 
-    col = col.push(bottom);
-
-    // Clear All confirmation
+    // Clear All confirmation or button
     if clear_all_confirm {
-        col = col.push(
+        bottom = bottom.push(
             container(
                 column![
-                    text("Permanently delete ALL history (including starred)?").size(13),
+                    text("Permanently delete ALL history (including starred)?").size(12),
                     row![
                         button(
                             row![
                                 text(icons::ICON_DELETE).font(icons::ICON_FONT).size(14),
-                                text(" Clear All").size(13),
+                                text(" Clear All").size(12),
                             ]
                             .align_y(iced::Alignment::Center),
                         )
@@ -291,7 +290,7 @@ pub(crate) fn view_sessions_sidebar<'a>(
                         button(
                             row![
                                 text(icons::ICON_CLOSE).font(icons::ICON_FONT).size(14),
-                                text(" Cancel").size(13),
+                                text(" Cancel").size(12),
                             ]
                             .align_y(iced::Alignment::Center),
                         )
@@ -300,14 +299,14 @@ pub(crate) fn view_sessions_sidebar<'a>(
                     ]
                     .spacing(8),
                 ]
-                .spacing(8)
+                .spacing(6)
                 .padding(8),
             )
             .style(container::bordered_box)
             .width(Length::Fill),
         );
     } else if !sessions.is_empty() {
-        col = col.push(
+        bottom = bottom.push(
             button(
                 row![
                     text(icons::ICON_DELETE).font(icons::ICON_FONT).size(14),
@@ -321,6 +320,8 @@ pub(crate) fn view_sessions_sidebar<'a>(
         );
     }
 
+    col = col.push(bottom);
+
     col.into()
 }
 
@@ -333,7 +334,10 @@ pub(crate) fn view_records_panel<'a>(
     editing_note: &'a Option<(String, String)>,
     editing_metric: &'a Option<(String, StoredMetrics)>,
     search_query: &'a str,
+    sort_column: Option<SortColumn>,
+    sort_ascending: bool,
 ) -> Element<'a, Message> {
+
     let mut col = column![].spacing(8).padding(8);
 
     if records.is_empty() {
@@ -347,7 +351,7 @@ pub(crate) fn view_records_panel<'a>(
 
     // Filter records by filename
     let query_lower = search_query.to_lowercase();
-    let filtered: Vec<&AnalysisRecord> = if query_lower.is_empty() {
+    let mut filtered: Vec<&AnalysisRecord> = if query_lower.is_empty() {
         records.iter().collect()
     } else {
         records
@@ -355,6 +359,25 @@ pub(crate) fn view_records_panel<'a>(
             .filter(|r| r.filename.to_lowercase().contains(&query_lower))
             .collect()
     };
+
+    // Sort
+    if let Some(sc) = sort_column {
+        filtered.sort_by(|a, b| {
+            let am = &a.metrics;
+            let bm = &b.metrics;
+            let cmp = match sc {
+                SortColumn::Filename => a.filename.cmp(&b.filename),
+                SortColumn::Height => am.major_length.partial_cmp(&bm.major_length).unwrap_or(std::cmp::Ordering::Equal),
+                SortColumn::Width => am.minor_length.partial_cmp(&bm.minor_length).unwrap_or(std::cmp::Ordering::Equal),
+                SortColumn::Volume => am.volume.partial_cmp(&bm.volume).unwrap_or(std::cmp::Ordering::Equal),
+                SortColumn::Aeq => am.a_eq.unwrap_or(0.0).partial_cmp(&bm.a_eq.unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal),
+                SortColumn::Beq => am.b_eq.unwrap_or(0.0).partial_cmp(&bm.b_eq.unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal),
+                SortColumn::SurfaceArea => am.surface_area.unwrap_or(0.0).partial_cmp(&bm.surface_area.unwrap_or(0.0)).unwrap_or(std::cmp::Ordering::Equal),
+                SortColumn::NTotal => am.n_total.unwrap_or(0).cmp(&bm.n_total.unwrap_or(0)),
+            };
+            if sort_ascending { cmp } else { cmp.reverse() }
+        });
+    }
 
     // Header with search
     col = col.push(
@@ -389,16 +412,38 @@ pub(crate) fn view_records_panel<'a>(
         .spacing(8),
     );
 
+    // Sortable header helper
+    let sort_hdr = |label: &'static str, sc: SortColumn, portion: u16| -> Element<'_, Message> {
+        let icon_str = if sort_column == Some(sc) {
+            if sort_ascending { icons::ICON_ARROW_UPWARD } else { icons::ICON_ARROW_DOWNWARD }
+        } else {
+            icons::ICON_UNFOLD_MORE
+        };
+        button(
+            row![
+                text(label).size(13),
+                text(icon_str).font(icons::ICON_FONT).size(12),
+            ]
+            .spacing(2)
+            .align_y(iced::Alignment::Center),
+        )
+        .on_press(Message::SortBy(sc))
+        .style(button::text)
+        .padding([2, 4])
+        .width(Length::FillPortion(portion))
+        .into()
+    };
+
     // Table header
     let header = row![
-        text("File").size(13).width(Length::FillPortion(3)),
-        text("H").size(13).width(Length::FillPortion(1)),
-        text("W").size(13).width(Length::FillPortion(1)),
-        text("Vol").size(13).width(Length::FillPortion(1)),
-        text("a_eq").size(13).width(Length::FillPortion(1)),
-        text("b_eq").size(13).width(Length::FillPortion(1)),
-        text("S.Area").size(13).width(Length::FillPortion(1)),
-        text("N").size(13).width(Length::FillPortion(1)),
+        sort_hdr("File", SortColumn::Filename, 3),
+        sort_hdr("H", SortColumn::Height, 1),
+        sort_hdr("W", SortColumn::Width, 1),
+        sort_hdr("Vol", SortColumn::Volume, 1),
+        sort_hdr("a_eq", SortColumn::Aeq, 1),
+        sort_hdr("b_eq", SortColumn::Beq, 1),
+        sort_hdr("S.Area", SortColumn::SurfaceArea, 1),
+        sort_hdr("N", SortColumn::NTotal, 1),
         text("Actions").size(13).width(Length::FillPortion(2)),
     ]
     .spacing(6);

@@ -3,29 +3,11 @@
 //! Provides a subset of Material Symbols Outlined as an embedded font,
 //! with constants for each icon codepoint used in the app.
 //!
-//! ## Regenerating the subset
+//! ## Adding new icons
 //!
-//! 1. Download the full variable font:
-//!    ```sh
-//!    curl -sL -o /tmp/MaterialSymbolsOutlined.ttf \
-//!      "https://github.com/google/material-design-icons/raw/master/variablefont/MaterialSymbolsOutlined%5BFILL%2CGRAD%2Copsz%2Cwght%5D.ttf"
-//!    ```
-//!
-//! 2. Look up codepoints (they differ from old Material Icons!):
-//!    ```sh
-//!    curl -sL "https://raw.githubusercontent.com/google/material-design-icons/master/variablefont/MaterialSymbolsOutlined%5BFILL%2CGRAD%2Copsz%2Cwght%5D.codepoints" \
-//!      | grep -E '^(icon_name) '
-//!    ```
-//!
-//! 3. Run pyftsubset (from fonttools / pip install fonttools):
-//!    ```sh
-//!    pyftsubset /tmp/MaterialSymbolsOutlined.ttf \
-//!      --unicodes="U+F09A,U+F097,..." \
-//!      --output-file=assets/material-symbols.ttf \
-//!      --layout-features="" --no-hinting --desubroutinize
-//!    ```
-//!
-//! 4. Update the constants below if adding new icons.
+//! 1. Look up the codepoint in the MaterialSymbolsOutlined `.codepoints` file.
+//! 2. Add a `pub(crate) const ICON_…` constant below.
+//! 3. Regenerate the font subset — see `assets/README.md` for the full command.
 
 use iced::widget::text;
 use iced::{Element, Font};
@@ -63,6 +45,13 @@ pub(crate) const ICON_MORE_VERT: &str = "\u{E5D4}";    // more_vert
 pub(crate) const ICON_SEARCH: &str = "\u{E8B6}";        // search
 pub(crate) const ICON_CHECK_CIRCLE: &str = "\u{F0BE}"; // check_circle
 pub(crate) const ICON_CANCEL: &str = "\u{E888}";        // cancel
+pub(crate) const ICON_ARROW_UPWARD: &str = "\u{E5D8}";  // arrow_upward
+pub(crate) const ICON_ARROW_DOWNWARD: &str = "\u{E5DB}"; // arrow_downward
+pub(crate) const ICON_UNFOLD_MORE: &str = "\u{E5D7}";   // unfold_more (sortable hint)
+pub(crate) const ICON_HOURGLASS: &str = "\u{E88B}";      // hourglass_empty (queued)
+pub(crate) const ICON_HOURGLASS_TOP: &str = "\u{EA5B}";  // hourglass_top (decoding)
+pub(crate) const ICON_SYNC: &str = "\u{E627}";           // sync (processing)
+pub(crate) const ICON_ERROR: &str = "\u{E000}";          // error
 
 /// Helper: create an icon text element with the given codepoint and size.
 pub(crate) fn icon<'a, Message: 'a>(codepoint: &'a str, size: f32) -> Element<'a, Message> {
