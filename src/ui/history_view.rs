@@ -78,7 +78,7 @@ fn activity_icon<'a>(
                 .on_press(on_press),
             tip,
             tooltip::Position::Right,
-        ),
+        ).style(tooltip_style),
     ]
     .spacing(2)
     .into()
@@ -123,7 +123,7 @@ pub(crate) fn view_sessions_sidebar<'a>(
                     .style(button::danger),
                 "Delete selected",
                 tooltip::Position::Bottom,
-            ),
+            ).style(tooltip_style),
         );
         toolbar = toolbar.push(
             tooltip(
@@ -132,7 +132,7 @@ pub(crate) fn view_sessions_sidebar<'a>(
                     .style(button::secondary),
                 "Export selected",
                 tooltip::Position::Bottom,
-            ),
+            ).style(tooltip_style),
         );
     }
     col = col.push(toolbar);
@@ -193,9 +193,20 @@ pub(crate) fn view_sessions_sidebar<'a>(
             if session.failed_count > 0 {
                 info += &format!(" · {}×", session.failed_count);
             }
-            if session.suspect_count > 0 {
-                info += &format!(" · ⚠{}", session.suspect_count);
-            }
+
+            // Build info line: plain text + optional warning icon with suspect count
+            let info_el: Element<'_, Message> = if session.suspect_count > 0 {
+                row![
+                    text(info).size(12),
+                    text(" · ").size(12),
+                    text(icons::ICON_WARNING).font(icons::ICON_FONT).size(11),
+                    text(format!("{}", session.suspect_count)).size(12),
+                ]
+                .align_y(iced::Alignment::Center)
+                .into()
+            } else {
+                text(info).size(12).into()
+            };
 
             let (star_label, star_style): (&str, fn(&iced::Theme, button::Status) -> button::Style) =
                 if session.starred {
@@ -220,11 +231,11 @@ pub(crate) fn view_sessions_sidebar<'a>(
                         .padding([1, 4]),
                     if session.starred { "Unstar" } else { "Star" },
                     tooltip::Position::Bottom,
-                ),
+                ).style(tooltip_style),
                 button(
                     column![
                         text(timestamp).size(13),
-                        text(info).size(12),
+                        info_el,
                     ]
                     .spacing(2)
                     .width(Length::Fill),
@@ -558,7 +569,7 @@ fn view_record_actions(record: &AnalysisRecord) -> Element<'_, Message> {
                 .padding(2),
             suspect_tip,
             tooltip::Position::Bottom,
-        ),
+        ).style(tooltip_style),
         tooltip(
             button(text(note_icon).font(icons::ICON_FONT).size(16))
                 .on_press(Message::OpenNoteEditor(record.id.clone()))
@@ -566,7 +577,7 @@ fn view_record_actions(record: &AnalysisRecord) -> Element<'_, Message> {
                 .padding(2),
             note_tip,
             tooltip::Position::Bottom,
-        ),
+        ).style(tooltip_style),
         tooltip(
             button(text(icons::ICON_EDIT).font(icons::ICON_FONT).size(16))
                 .on_press(Message::OpenMetricEditor(record.id.clone()))
@@ -574,7 +585,7 @@ fn view_record_actions(record: &AnalysisRecord) -> Element<'_, Message> {
                 .padding(2),
             "Edit metrics",
             tooltip::Position::Bottom,
-        ),
+        ).style(tooltip_style),
     ]
     .spacing(2)
     .into()
@@ -599,7 +610,7 @@ fn view_note_editor<'a>(record_id: &str, note_text: &str) -> Element<'a, Message
                     .padding(4),
                 "Save",
                 tooltip::Position::Bottom,
-            ),
+            ).style(tooltip_style),
             tooltip(
                 button(
                     text(icons::ICON_CLOSE).font(icons::ICON_FONT).size(16)
@@ -609,7 +620,7 @@ fn view_note_editor<'a>(record_id: &str, note_text: &str) -> Element<'a, Message
                     .padding(4),
                 "Cancel",
                 tooltip::Position::Bottom,
-            ),
+            ).style(tooltip_style),
         ]
         .spacing(4)
         .padding(4),
@@ -698,7 +709,7 @@ fn view_metric_editor<'a>(record_id: &str, metrics: &StoredMetrics) -> Element<'
                         .padding(4),
                     "Save",
                     tooltip::Position::Bottom,
-                ),
+                ).style(tooltip_style),
                 tooltip(
                     button(
                         text(icons::ICON_CLOSE).font(icons::ICON_FONT).size(16)
@@ -708,7 +719,7 @@ fn view_metric_editor<'a>(record_id: &str, metrics: &StoredMetrics) -> Element<'
                         .padding(4),
                     "Cancel",
                     tooltip::Position::Bottom,
-                ),
+                ).style(tooltip_style),
             ]
             .spacing(4),
         ]
@@ -905,6 +916,21 @@ fn format_timestamp(ts: f64) -> String {
     let hour = date.get_hours();
     let min = date.get_minutes();
     format!("{year}-{month:02}-{day:02} {hour:02}:{min:02}")
+}
+
+/// Opaque tooltip style: dark background with subtle border, avoids visual
+/// blending with underlying elements.
+pub(crate) fn tooltip_style(_theme: &iced::Theme) -> container::Style {
+    container::Style {
+        background: Some(iced::Background::Color(iced::Color::from_rgb(0.15, 0.15, 0.15))),
+        text_color: Some(iced::Color::WHITE),
+        border: iced::Border {
+            color: iced::Color::from_rgb(0.3, 0.3, 0.3),
+            width: 1.0,
+            radius: 4.0.into(),
+        },
+        ..Default::default()
+    }
 }
 
 // Re-export types used in Message

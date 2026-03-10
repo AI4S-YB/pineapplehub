@@ -1173,7 +1173,7 @@ impl App {
                         .padding(4),
                     "Help",
                     tooltip::Position::Bottom,
-                ),
+                ).style(history_view::tooltip_style),
                 tooltip(
                     button(text(icons::ICON_HISTORY).font(icons::ICON_FONT).size(18))
                         .on_press(Message::NavigateTo(Page::History {
@@ -1184,7 +1184,7 @@ impl App {
                         .padding(4),
                     "History",
                     tooltip::Position::Bottom,
-                ),
+                ).style(history_view::tooltip_style),
                 tooltip(
                     button(
                         // GitHub is a brand logo absent from Material Symbols.
@@ -1202,7 +1202,7 @@ impl App {
                     .padding(4),
                     "GitHub Repository",
                     tooltip::Position::Bottom,
-                ),
+                ).style(history_view::tooltip_style),
             ]
             .spacing(4)
             .padding([8, 12])
