@@ -1185,10 +1185,10 @@ impl App {
                             m.major_length,
                             m.minor_length,
                             m.volume,
-                            m.a_eq.map_or("-".into(), |v| format!("{v:.2}")),
-                            m.b_eq.map_or("-".into(), |v| format!("{v:.2}")),
-                            m.surface_area.map_or("-".into(), |v| format!("{v:.0}")),
-                            m.n_total.map_or("-".into(), |v| format!("{v}")),
+                            m.a_eq.map_or(String::new(), |v| format!("{v:.2}")),
+                            m.b_eq.map_or(String::new(), |v| format!("{v:.2}")),
+                            m.surface_area.map_or(String::new(), |v| format!("{v:.0}")),
+                            m.n_total.map_or(String::new(), |v| format!("{v}")),
                         );
                     }
                     trigger_download(&csv, "pineapple_history.csv");
@@ -1204,23 +1204,36 @@ impl App {
                 if sids.is_empty() {
                     return Task::none();
                 }
-                let count = sids.len();
+                let session_count = sids.len();
+
+                // Soft-delete: cache for undo
+                let deleted_sessions: Vec<_> = self.sessions
+                    .iter()
+                    .filter(|s| sids.contains(&s.session_id))
+                    .cloned()
+                    .collect();
+                let deleted_records: Vec<_> = self.current_records
+                    .iter()
+                    .filter(|r| sids.contains(&r.session_id))
+                    .cloned()
+                    .collect();
+                let record_count = deleted_records.len();
+
                 self.selected_sessions.clear();
                 self.current_records.retain(|r| !sids.contains(&r.session_id));
                 self.sessions.retain(|s| !sids.contains(&s.session_id));
 
-                Task::perform(
-                    async move {
-                        if let Ok(db) = store::open_db().await {
-                            let deleted = store::delete_sessions(&db, &sids).await.unwrap_or(0);
-                            return format!(
-                                "Deleted {count} exported session(s) ({deleted} records)"
-                            );
-                        }
-                        String::new()
-                    },
-                    Message::UndoToastMessage,
-                )
+                self.pending_delete = Some(PendingDelete {
+                    sessions: deleted_sessions,
+                    records: deleted_records,
+                    sids,
+                });
+                self.undo_toast = Some(format!(
+                    "Deleted {session_count} exported session(s) ({record_count} records)"
+                ));
+                self.undo_countdown = Some(5);
+
+                Task::none()
             }
             Message::DismissExportPrompt => {
                 self.export_delete_prompt = false;
