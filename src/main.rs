@@ -1718,15 +1718,25 @@ impl App {
         // ── Right column: results table ──
         let mut right_col = column![text("Results").size(24)].spacing(8).width(Length::FillPortion(5));
 
+        use history::stats::MetricColumn;
+        let tip_hdr = |label: &'static str, tip: &'static str, portion: u16| -> Element<'_, Message> {
+            tooltip(
+                text(label).width(Length::FillPortion(portion)),
+                tip,
+                tooltip::Position::Bottom,
+            )
+            .style(history_view::tooltip_style)
+            .into()
+        };
         let header = row![
-            text("File").width(Length::FillPortion(3)),
-            text("H").width(Length::FillPortion(2)),
-            text("D").width(Length::FillPortion(2)),
-            text("V").width(Length::FillPortion(2)),
-            text("a").width(Length::FillPortion(2)),
-            text("b").width(Length::FillPortion(2)),
-            text("S").width(Length::FillPortion(2)),
-            text("Nf").width(Length::FillPortion(2)),
+            tip_hdr("File", "Source image filename", 3),
+            tip_hdr("H", MetricColumn::Height.description(), 2),
+            tip_hdr("D", MetricColumn::Width.description(), 2),
+            tip_hdr("V", MetricColumn::Volume.description(), 2),
+            tip_hdr("a", MetricColumn::Aeq.description(), 2),
+            tip_hdr("b", MetricColumn::Beq.description(), 2),
+            tip_hdr("S", MetricColumn::SurfaceArea.description(), 2),
+            tip_hdr("Nf", MetricColumn::NTotal.description(), 2),
         ]
         .spacing(4);
         right_col = right_col.push(header);

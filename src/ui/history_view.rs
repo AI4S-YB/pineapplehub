@@ -551,38 +551,43 @@ pub(crate) fn view_records_panel<'a>(
         .spacing(8),
     );
 
-    // Sortable header helper
-    let sort_hdr = |label: &'static str, sc: SortColumn, portion: u16| -> Element<'_, Message> {
+    // Sortable header helper — each column gets a tooltip describing its meaning
+    let sort_hdr = |label: &'static str, tip: &'static str, sc: SortColumn, portion: u16| -> Element<'_, Message> {
         let icon_str = if sort_column == Some(sc) {
             if sort_ascending { icons::ICON_ARROW_UPWARD } else { icons::ICON_ARROW_DOWNWARD }
         } else {
             icons::ICON_UNFOLD_MORE
         };
-        button(
-            row![
-                text(label).size(13),
-                text(icon_str).font(icons::ICON_FONT).size(12),
-            ]
-            .spacing(2)
-            .align_y(iced::Alignment::Center),
+        tooltip(
+            button(
+                row![
+                    text(label).size(13),
+                    text(icon_str).font(icons::ICON_FONT).size(12),
+                ]
+                .spacing(2)
+                .align_y(iced::Alignment::Center),
+            )
+            .on_press(Message::SortBy(sc))
+            .style(button::text)
+            .padding([2, 4])
+            .width(Length::FillPortion(portion)),
+            tip,
+            tooltip::Position::Bottom,
         )
-        .on_press(Message::SortBy(sc))
-        .style(button::text)
-        .padding([2, 4])
-        .width(Length::FillPortion(portion))
+        .style(tooltip_style)
         .into()
     };
 
     // Table header
     let header = row![
-        sort_hdr("File", SortColumn::Filename, 3),
-        sort_hdr("H", SortColumn::Height, 1),
-        sort_hdr("D", SortColumn::Width, 1),
-        sort_hdr("V", SortColumn::Volume, 1),
-        sort_hdr("a", SortColumn::Aeq, 1),
-        sort_hdr("b", SortColumn::Beq, 1),
-        sort_hdr("S", SortColumn::SurfaceArea, 1),
-        sort_hdr("Nf", SortColumn::NTotal, 1),
+        sort_hdr("File", "Source image filename", SortColumn::Filename, 3),
+        sort_hdr("H", MetricColumn::Height.description(), SortColumn::Height, 1),
+        sort_hdr("D", MetricColumn::Width.description(), SortColumn::Width, 1),
+        sort_hdr("V", MetricColumn::Volume.description(), SortColumn::Volume, 1),
+        sort_hdr("a", MetricColumn::Aeq.description(), SortColumn::Aeq, 1),
+        sort_hdr("b", MetricColumn::Beq.description(), SortColumn::Beq, 1),
+        sort_hdr("S", MetricColumn::SurfaceArea.description(), SortColumn::SurfaceArea, 1),
+        sort_hdr("Nf", MetricColumn::NTotal.description(), SortColumn::NTotal, 1),
         text("Actions").size(13).width(Length::FillPortion(2)),
     ]
     .spacing(6);
@@ -1038,23 +1043,28 @@ pub(crate) fn view_statistics_panel<'a>(
         .align_y(iced::Alignment::Center),
     );
 
-    // Table header
-    let hdr = |label: &'static str, portion: u16| -> Element<'_, Message> {
-        text(label)
-            .size(12)
-            .width(Length::FillPortion(portion))
-            .into()
+    // Table header — each column gets a tooltip
+    let hdr = |label: &'static str, tip: &'static str, portion: u16| -> Element<'_, Message> {
+        tooltip(
+            text(label)
+                .size(12)
+                .width(Length::FillPortion(portion)),
+            tip,
+            tooltip::Position::Bottom,
+        )
+        .style(tooltip_style)
+        .into()
     };
     let header_row = container(
         row![
-            hdr("Metric", 2),
-            hdr("n", 1),
-            hdr("Mean", 2),
-            hdr("Median", 2),
-            hdr("SD", 2),
-            hdr("CV%", 1),
-            hdr("Min", 2),
-            hdr("Max", 2),
+            hdr("Metric", "Measurement variable", 2),
+            hdr("n", "Sample count", 1),
+            hdr("Mean", "Arithmetic mean", 2),
+            hdr("Median", "50th percentile", 2),
+            hdr("SD", "Standard deviation", 2),
+            hdr("CV%", "Coefficient of variation (SD/Mean × 100%)", 1),
+            hdr("Min", "Minimum value", 2),
+            hdr("Max", "Maximum value", 2),
         ]
         .spacing(4),
     )

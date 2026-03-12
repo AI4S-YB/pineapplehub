@@ -55,6 +55,32 @@ impl MetricColumn {
         }
     }
 
+    /// Short label used in compact table headers (no unit).
+    pub fn short_label(self) -> &'static str {
+        match self {
+            Self::Height => "H",
+            Self::Width => "D",
+            Self::Volume => "V",
+            Self::Aeq => "a",
+            Self::Beq => "b",
+            Self::SurfaceArea => "S",
+            Self::NTotal => "Nf",
+        }
+    }
+
+    /// Tooltip description explaining what this metric is.
+    pub fn description(self) -> &'static str {
+        match self {
+            Self::Height => "Major axis length (height)",
+            Self::Width => "Equatorial diameter (width)",
+            Self::Volume => "Estimated volume",
+            Self::Aeq => "Equiv. ellipsoid semi-axis a",
+            Self::Beq => "Equiv. ellipsoid semi-axis b",
+            Self::SurfaceArea => "Surface area",
+            Self::NTotal => "Fruitlet count",
+        }
+    }
+
     /// Extract the value for this column from a record, if present.
     pub fn extract(self, r: &AnalysisRecord) -> Option<f64> {
         let m = &r.metrics;
