@@ -332,6 +332,18 @@ pub fn dialog_scrim_style(_theme: &Theme) -> container::Style {
     }
 }
 
+/// Help overlay scrim (darker than dialog scrim for better readability).
+pub fn help_overlay_style(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(iced::Background::Color(Color {
+            a: 0.85,
+            ..BG_DEEP
+        })),
+        text_color: Some(TEXT_PRIMARY),
+        ..Default::default()
+    }
+}
+
 /// Selected file item in analysis page job list.
 pub fn selected_job_style(_theme: &Theme) -> container::Style {
     container::Style {

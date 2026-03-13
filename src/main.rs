@@ -142,6 +142,8 @@ enum Message {
     /// Tick for highlight flash animation.
     HighlightTick,
 
+    /// Toggle the D2R-style help overlay (F1 / Help button).
+    ToggleHelp,
     /// No-op (used for smoke tests)
     Noop,
     /// Quick filter toggle for Records panel
@@ -286,6 +288,9 @@ struct App {
 
     /// Pane grid state for the history sidebar/main panel split.
     history_panes: iced::widget::pane_grid::State<HistoryPane>,
+
+    /// D2R-style help overlay visible.
+    show_help: bool,
 }
 
 impl App {
@@ -335,6 +340,7 @@ impl App {
                     b: Box::new(iced::widget::pane_grid::Configuration::Pane(HistoryPane::MainPanel)),
                 },
             ),
+            show_help: false,
         }
     }
 
@@ -416,6 +422,40 @@ impl App {
                     }) = event
                     {
                         Some(Message::CancelEdit)
+                    } else {
+                        None
+                    }
+                }),
+            );
+        }
+
+        // F1 toggles help overlay (non-capturing closure required by listen_with)
+        subs.push(
+            iced::event::listen_with(|event, _status, _window| {
+                use iced::keyboard;
+                if let iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(keyboard::key::Named::F1),
+                    ..
+                }) = event
+                {
+                    Some(Message::ToggleHelp)
+                } else {
+                    None
+                }
+            }),
+        );
+
+        // ESC closes help overlay when open
+        if self.show_help {
+            subs.push(
+                iced::event::listen_with(|event, _status, _window| {
+                    use iced::keyboard;
+                    if let iced::Event::Keyboard(keyboard::Event::KeyPressed {
+                        key: keyboard::Key::Named(keyboard::key::Named::Escape),
+                        ..
+                    }) = event
+                    {
+                        Some(Message::ToggleHelp)
                     } else {
                         None
                     }
@@ -708,6 +748,10 @@ impl App {
                 if self.highlight_ticks == 0 {
                     self.highlight_record_id = None;
                 }
+                Task::none()
+            }
+            Message::ToggleHelp => {
+                self.show_help = !self.show_help;
                 Task::none()
             }
             Message::Noop => Task::none(),
@@ -1533,9 +1577,10 @@ impl App {
                 space::horizontal().width(Length::Fill),
                 tooltip(
                     button(text(icons::ICON_HELP).font(icons::ICON_FONT).size(20))
+                        .on_press(Message::ToggleHelp)
                         .style(theme::text_button_style)
                         .padding(6),
-                    "Help",
+                    "Help (F1)",
                     tooltip::Position::Bottom,
                 ).style(theme::tooltip_style),
                 tooltip(
@@ -1583,7 +1628,7 @@ impl App {
                 .width(Length::Fill)
                 .height(2)
                 .style(theme::accent_separator),
-        ].spacing(0);
+        ].spacing(0).height(Length::Fill);
 
         // ── Undo toast (placed before page content so it's visible) ──
         if let (Some(msg), Some(cd)) = (&self.undo_toast, self.undo_countdown) {
@@ -1621,6 +1666,15 @@ impl App {
             .height(Length::Fill)
             .center(Length::Fill);
             layers = layers.push(overlay);
+        }
+
+        // D2R-style help overlay
+        if self.show_help {
+            let help_layer = match &self.page {
+                Page::Analysis => ui::help_overlay::view_analysis_help(),
+                Page::History { .. } => ui::help_overlay::view_history_help(),
+            };
+            layers = layers.push(help_layer);
         }
 
         layers.into()
@@ -1853,6 +1907,7 @@ impl App {
             .spacing(16)
             .padding(12),
         )
+        .height(Length::Fill)
         .into()
     }
 
