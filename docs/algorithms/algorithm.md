@@ -87,40 +87,41 @@ $$A_{min} = 0.2 \times \pi R_{coin}^2 \,\rho^2 \quad [\text{px}^2]$$
 
 *Rationale*: Any region substantially smaller than a coin is too small to be a valid fruit surface patch at any plausible camera distance.
 
-#### 2.2 Texture Richness Scoring
+#### 2.2 Low-Threshold Guided Grouping & Texture Scoring
 
-Each surviving candidate $\mathcal{C}_i$ is scored by a **texture richness** measure $\mathcal{S}_i$ that exploits the high-frequency surface structure of the pineapple skin:
+The Otsu-derived contours from Step 1.2 may be **fragmented**: the dark inter-fruitlet crevices often fall below the Otsu threshold, splitting the fruit's outline into multiple disconnected white regions. If each fragment is scored independently, their individually small areas may cause the peel side to lose to the flesh side (which remains one large, solid contour). Furthermore, even aggregating fragment areas is insufficient: the Otsu mask only captures the bright fruitlet mounds — the dark gaps between them are excluded — so the summed fragment areas drastically underrepresent the peel side's true physical extent.
 
-1.  **Axis-aligned bounding box** $[x_0, x_1) \times [y_0, y_1)$ of the candidate's contour is computed; coordinates are clamped to the image boundary.
+To solve this, the algorithm uses **low-threshold contours as natural object boundaries**, with the low-threshold contour's own geometric area as the size term:
 
-2.  **Local gradient magnitude**: For each non-background pixel $(x,y)$ inside the bounding box (background defined as luminance $\leq 15$), the first-order finite-difference gradient magnitude is computed:
-$$\nabla I(x,y) = |I(x,y) - I(x+1,y)| + |I(x,y) - I(x,y+1)|$$
-
-3.  **Mean edge density**: Averaged over all $N_{fg}$ non-background pixels in the region:
-$$\bar{g}_i = \frac{1}{N_{fg}} \sum_{(x,y) \in \mathcal{C}_i} \nabla I(x,y)$$
-
-4.  **Combined score** (balances texture richness with region size, using $\sqrt{A}$ rather than $A$ to prevent size dominance):
-$$\mathcal{S}_i = \bar{g}_i \cdot \sqrt{A_i}$$
-
-The candidate $\mathcal{C}^* = \arg\max_i \mathcal{S}_i$ is selected as the skin ROI **target**.
-
-*Physical rationale*: The pineapple skin is covered with raised fruitlet mounds separated by narrow dark crevices, producing high $\bar{g}$. The cut flesh surface is optically smooth, producing $\bar{g} \approx 0$. The coin, though high in edge contrast, is small in area, making $\sqrt{A}$ an effective size penalty.
-
-#### 2.3 Low-Threshold Bounding
-
-The Otsu-derived contours from Step 1.2 may be **fragmented**: the dark inter-fruitlet crevices often fall below the Otsu threshold, splitting the fruit's outline into multiple disconnected white regions. The texture scoring correctly identifies **which** candidate is the peel side, but the winning candidate's contour may cover only a fraction of the fruit.
-
-To obtain the **complete** fruit silhouette for ROI computation, the smoothed grayscale image $I_{smooth}$ is globally re-thresholded at a low fixed level $\tau_{low} = 25$:
+1.  **Low-threshold binarization**: The smoothed grayscale image $I_{smooth}$ is globally thresholded at a low fixed level $\tau_{low} = 25$:
 
 $$B_{low} = \mathbf{1}[I_{smooth} > \tau_{low}]$$
 
-At this threshold, inter-fruitlet gaps (smoothed intensity ≈ 30–50) remain above threshold, making the fruit a single connected component. Meanwhile, the background (intensity ≈ 0–15) remains below threshold, naturally separating distinct objects without morphological closing.
+At this threshold, inter-fruitlet gaps (smoothed intensity ≈ 30–50) remain above threshold, keeping each fruit half as a single connected component. The background (intensity ≈ 0–15) stays below threshold, naturally separating distinct objects.
 
-Contours are extracted from $B_{low}$. The contour whose AABB contains the centroid of $\mathcal{C}^*$ and has the largest AABB overlap area with $\mathcal{C}^*$ is selected as the bounding contour $\mathcal{C}_{bound}$. Its `min_area_rect` yields the final ROI parameters.
+2.  **Area filtering**: Outer contours are extracted from $B_{low}$. Low-threshold contours with geometric area below $A_{min}$ (same threshold as Step 2.1) are discarded as noise specks.
 
-> This **two-stage** design separates *identification* (Otsu + texture scoring) from *bounding* (low-threshold segmentation). Otsu contours excel at discriminating object types but fragment; low-threshold contours provide complete outlines but do not distinguish object types. The two stages are complementary.
+3.  **Otsu membership check**: Each surviving low-threshold contour $\mathcal{L}_j$ is checked for the presence of at least one Otsu candidate whose centroid falls within $\mathcal{L}_j$'s AABB. This prevents non-fruit objects (rulers, background artifacts) — whose Otsu contours were already removed by the straight-edge filter in Step 1.2 — from being scored.
 
-#### 2.4 Rotated ROI Extraction
+4.  **Per-contour texture scoring**: For each qualifying low-threshold contour $\mathcal{L}_j$:
+
+    -  **Edge density** $\bar{g}_j$ is computed over $\mathcal{L}_j$'s AABB (clamped to image bounds): for each non-background pixel (luminance $> 15$), the first-order finite-difference gradient magnitude is calculated:
+
+    $$\nabla I(x,y) = |I(x,y) - I(x+1,y)| + |I(x,y) - I(x,y+1)|$$
+
+    and averaged over all $N_{fg}$ non-background pixels.
+
+    -  **Contour area** $A_j$: the geometric area enclosed by $\mathcal{L}_j$ itself (from `contour_area`), **not** the sum of Otsu fragment areas. This correctly represents the full physical size of each object, including inter-fruitlet gaps that are invisible in the Otsu mask.
+
+    -  **Combined score**: $\mathcal{S}_j = \bar{g}_j \cdot \sqrt{A_j}$
+
+5.  **Selection**: The contour $\mathcal{L}^* = \arg\max_j \mathcal{S}_j$ wins. Its `min_area_rect` directly yields the final ROI parameters.
+
+*Physical rationale*: Both fruit halves have similar physical sizes, so their low-threshold contour areas $A_j$ are approximately equal. This makes edge density $\bar{g}$ the sole effective discriminator. The pineapple skin is covered with raised fruitlet mounds separated by narrow dark crevices, producing high $\bar{g}$. The cut flesh surface is optically smooth, producing $\bar{g} \approx 0$. The coin, though high in edge contrast, is small in contour area, making $\sqrt{A}$ an effective size penalty.
+
+> This design uses low-threshold contours in three roles simultaneously: (1) **area measurement** — correctly representing each object's full physical extent, (2) **membership gating** — ensuring only regions containing known fruit candidates are scored, and (3) **bounding** — providing the winning object's complete silhouette for `min_area_rect`.
+
+#### 2.3 Rotated ROI Extraction
 
 Given the bounding contour's minimum-area rectangle with centroid $(c_x, c_y)$, upright dimensions $(W_{roi}, H_{roi})$ — where the longer axis is assigned as height — and tilt angle $\theta_{tilt}$:
 
@@ -323,7 +324,7 @@ $$N_{total} = \left\lfloor \frac{S - S_{cap}}{A_{eye}} \right\rfloor = \left\lfl
 
 - **Physical exactness**: The dual-axis unwrapping strategy explicitly accounts for both horizontal and vertical perspective foreshortening without heuristic bounding boxes.
 - **Scale invariance**: All spatial parameters (area thresholds, morphology radii) are derived from the coin calibration and remain consistent across camera distances.
-- **Texture-discriminated ROI selection**: The edge-density × √area score reliably selects the textured skin surface over the smooth flesh with no colour-space assumptions.
+- **Texture-discriminated ROI selection**: Low-threshold guided grouping ensures peel-side fragment areas are correctly aggregated before texture scoring, making the edge-density × √area metric robust against Otsu contour fragmentation.
 - **Computational efficiency**: Column-invariant depth values are precomputed in O(W) rather than O(WH), reducing the dominant square-root cost by a factor of H.
 - **Noise-robust surface integration**: Envelope binning eliminates pixel-level zigzag inflation while preserving the fruit's true profile shape.
 - **Anatomically-aware eye counting**: Polar cap subtraction accounts for the crown and peduncle plates that bear no fruitlet eyes.
