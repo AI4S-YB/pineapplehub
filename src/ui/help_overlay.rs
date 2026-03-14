@@ -97,15 +97,17 @@ impl canvas::Program<Message> for LinesCanvas {
             frame.fill(&Path::circle(Point::new(px, target_py), dot_r), theme::ACCENT);
         }
 
-        // Close hint — single Canvas text call (works reliably)
-        let hint = "Press F1 / ESC to close     ·     Click anywhere to dismiss";
-        frame.fill_text(CanvasText {
-            content: hint.to_string(),
-            position: Point::new(w * 0.17, h - 30.0),
-            color: Color::from_rgba(1.0, 1.0, 1.0, 0.45),
-            size: iced::Pixels(13.0),
-            ..CanvasText::default()
-        });
+        // Close hint — only drawn when there are annotations
+        if !annotations.is_empty() {
+            let hint = "Press F1 / ESC to close     ·     Click anywhere to dismiss";
+            frame.fill_text(CanvasText {
+                content: hint.to_string(),
+                position: Point::new(w * 0.17, h - 30.0),
+                color: Color::from_rgba(1.0, 1.0, 1.0, 0.45),
+                size: iced::Pixels(13.0),
+                ..CanvasText::default()
+            });
+        }
 
         vec![frame.into_geometry()]
     }
@@ -125,29 +127,10 @@ fn analysis_annotations(w: f32, _h: f32) -> Vec<Annotation> {
     ]
 }
 
-fn history_annotations(w: f32, h: f32) -> Vec<Annotation> {
-    let sidebar_w = w * 0.18;
-    let sidebar_cx = sidebar_w / 2.0;
-    let main_x = sidebar_w;
-    let main_w = w - sidebar_w;
-    let tab_y = CONTENT_TOP + 15.0;
-    let session_list_y = CONTENT_TOP + 40.0;
-    let cleanup_y = h - 40.0;
-
-    vec![
-        Annotation { tx: sidebar_cx, ty: session_list_y, label_frac_y: 0.45 },
-        Annotation { tx: sidebar_cx * 0.4, ty: session_list_y + 30.0, label_frac_y: 0.58 },
-        Annotation { tx: sidebar_cx * 1.6, ty: session_list_y + 30.0, label_frac_y: 0.58 },
-        Annotation { tx: sidebar_cx, ty: session_list_y + 100.0, label_frac_y: 0.70 },
-        Annotation { tx: sidebar_cx, ty: cleanup_y, label_frac_y: 0.85 },
-        Annotation { tx: main_x + main_w * 0.15, ty: tab_y, label_frac_y: 0.30 },
-        Annotation { tx: main_x + main_w * 0.35, ty: tab_y, label_frac_y: 0.30 },
-        Annotation { tx: main_x + main_w * 0.52, ty: tab_y, label_frac_y: 0.30 },
-        Annotation { tx: main_x + main_w * 0.40, ty: CONTENT_TOP + 60.0, label_frac_y: 0.50 },
-        Annotation { tx: main_x + main_w * 0.80, ty: CONTENT_TOP + 60.0, label_frac_y: 0.50 },
-        Annotation { tx: main_x + main_w * 0.90, ty: CONTENT_TOP + 150.0, label_frac_y: 0.65 },
-        Annotation { tx: main_x + main_w * 0.45, ty: CONTENT_TOP + 200.0, label_frac_y: 0.78 },
-    ]
+fn history_annotations(_w: f32, _h: f32) -> Vec<Annotation> {
+    // History page uses text-panel help, no annotations needed.
+    // This function is only kept for the LinesCanvas interface; it draws only scrim.
+    vec![]
 }
 
 // ────────────────────────  Styled label  ────────────────────────
@@ -213,69 +196,76 @@ pub(crate) fn view_analysis_help<'a>() -> Element<'a, Message> {
         .into()
 }
 
+/// A single styled paragraph line for the history help panel.
+fn help_line<'a>(s: &str) -> Element<'a, Message> {
+    text(s.to_string())
+        .size(14)
+        .color(Color::from_rgba(0.95, 0.92, 0.85, 0.92))
+        .into()
+}
+
+/// A section heading for the history help panel.
+fn help_heading<'a>(s: &str) -> Element<'a, Message> {
+    text(s.to_string())
+        .size(16)
+        .color(theme::ACCENT)
+        .into()
+}
+
 pub(crate) fn view_history_help<'a>() -> Element<'a, Message> {
-    let lines = canvas_widget(LinesCanvas { build: history_annotations })
+    // Scrim (Canvas draws only the dark overlay, no annotations)
+    let scrim = canvas_widget(LinesCanvas { build: history_annotations })
         .width(Length::Fill)
         .height(Length::Fill);
 
-    // Labels laid out with iced widgets
-    let labels: Element<'_, Message> = column![
-        space::vertical().height(Length::Fixed(100.0)),
-        // Sidebar + Main row for top labels
-        row![
-            container(lbl("Session List"))
-                .width(Length::FillPortion(1))
-                .center_x(Length::Fill),
-            container(
-                column![
-                    lbl("Records    Statistics    Charts"),
-                    space::vertical().height(Length::Fixed(50.0)),
-                    lbl("Click Header to Sort"),
-                ]
-            ).width(Length::FillPortion(4))
-            .padding(Padding::from([0, 0]).left(30)),
-        ],
-        space::vertical().height(Length::Fixed(30.0)),
-        // Middle section
-        row![
-            container(
-                column![
-                    lbl("☑ Check to Load"),
-                    space::vertical().height(Length::Fixed(10.0)),
-                    lbl("★ Star = Protected"),
-                    space::vertical().height(Length::Fixed(20.0)),
-                    lbl("Double-click to Rename"),
-                ]
-            ).width(Length::FillPortion(1))
-            .padding(Padding::from([0, 0]).left(5)),
-            container(
-                column![
-                    row![
-                        space::horizontal().width(Length::Fill),
-                        lbl("Search & Filters"),
-                        space::horizontal().width(Length::Fixed(20.0)),
-                    ],
-                    space::vertical().height(Length::Fixed(30.0)),
-                    row![
-                        space::horizontal().width(Length::Fill),
-                        lbl("✏ Edit Note / Metric"),
-                        space::horizontal().width(Length::Fixed(10.0)),
-                    ],
-                    space::vertical().height(Length::Fixed(30.0)),
-                    lbl("Orange Row = Outlier"),
-                ]
-            ).width(Length::FillPortion(4)),
-        ],
-        space::vertical().height(Length::Fill),
-        container(lbl("Cleanup / Clear All"))
-            .padding(Padding::from([0, 0]).left(10)),
-        space::vertical().height(Length::Fixed(20.0)),
-    ]
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .into();
+    // Centered help text panel
+    let panel = container(
+        column![
+            text("History — Quick Guide")
+                .size(20)
+                .color(theme::ACCENT),
+            space::vertical().height(Length::Fixed(16.0)),
 
-    let overlay = stack![lines, labels]
+            help_heading("Star"),
+            help_line("Click the star icon next to a session to protect it."),
+            help_line("Starred sessions will never be auto-cleaned."),
+            space::vertical().height(Length::Fixed(10.0)),
+
+            help_heading("Data Storage & Cleanup"),
+            help_line("All analysis results are saved in your browser (IndexedDB)."),
+            help_line("Up to 5 000 records can be stored — no server needed."),
+            help_line("When storage gets full, use \"Quick Cleanup\" at the bottom"),
+            help_line("left to remove the oldest unstarred sessions automatically."),
+            help_line("Starred sessions are always kept safe."),
+            space::vertical().height(Length::Fixed(10.0)),
+
+            help_heading("Records Tab"),
+            help_line("View every individual measurement from selected sessions."),
+            help_line("Orange rows are auto-flagged statistical outliers (IQR method:"),
+            help_line("values outside Q1\u{2013}1.5\u{00d7}IQR ~ Q3+1.5\u{00d7}IQR)."),
+            help_line("You can also manually flag a row as suspect, add free-text"),
+            help_line("notes, or edit the height / width values if needed."),
+            space::vertical().height(Length::Fixed(10.0)),
+
+            help_heading("Statistics Tab"),
+            help_line("Summary statistics (mean, median, SD, min, max, Q1, Q3)"),
+            help_line("computed across all selected sessions at a glance."),
+            space::vertical().height(Length::Fixed(16.0)),
+
+            text("Press F1 / ESC to close   ·   Click anywhere to dismiss")
+                .size(13)
+                .color(Color::from_rgba(1.0, 1.0, 1.0, 0.40)),
+        ]
+        .spacing(3)
+        .align_x(iced::Alignment::Center)
+    )
+    .width(Length::Shrink)
+    .max_width(560)
+    .center_x(Length::Fill)
+    .center_y(Length::Fill)
+    .padding(40);
+
+    let overlay = stack![scrim, panel]
         .width(Length::Fill)
         .height(Length::Fill);
 
