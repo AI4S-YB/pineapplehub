@@ -60,12 +60,13 @@ For each surviving contour, the algorithm extracts three rotation-invariant metr
 
 **Two-Tier Detection**:
 
-*Tier 1 (Strict)*: Selects the largest hull-area candidate satisfying all three constraints simultaneously:
+*Tier 1 (Strict)*: Candidates satisfying all three constraints simultaneously are collected:
 $$\alpha > 0.95, \quad \phi \in [0.70,\,0.88], \quad \kappa > 0.85$$
 
-*Tier 2 (Relaxed Fallback)*: If Tier 1 yields no result, candidates passing relaxed thresholds ($\alpha > 0.85$, $\phi \in [0.60, 0.92]$, $\kappa > 0.70$) are ranked by a penalty score that penalises deviation from the ideal circle:
+When two or more candidates pass, a **relative-size gate** excludes fruit-sized objects: any candidate with $A_{hull} > 0.25 \times A_{max}$ is discarded, where $A_{max}$ is the largest hull area among *all* contour candidates (including non-round fruit halves that failed the shape test). A 1-Yuan coin (25 mm dia) has area $\approx \frac{1}{6}$ to $\frac{1}{20}$ of a fruit half (60–120 mm dia), so the 25% cutoff safely separates coin from fruit. Among surviving candidates, the one with the best circularity score wins (smallest deviation from ideal circle); ties are broken by preferring the smaller candidate:
 $$s = -\bigl(10\,|\alpha - 1| + 5\,|\phi - \tfrac{\pi}{4}| + 5\,|1 - \kappa|\bigr)$$
-The candidate with maximum $s$ is selected.
+
+*Tier 2 (Relaxed Fallback)*: If Tier 1 yields no result, candidates passing relaxed thresholds ($\alpha > 0.85$, $\phi \in [0.60, 0.92]$, $\kappa > 0.70$) are filtered by the same relative-size gate when multiple candidates exist, then ranked by the penalty score $s$. The candidate with maximum $s$ is selected; ties prefer smaller area.
 
 **Scale Derivation**: For the winning hull with area $A_{hull}$, the equivalent radius is:
 $$R_{hull} = \sqrt{A_{hull} / \pi}$$

@@ -20,6 +20,12 @@ The ROI extraction pipeline in [`roi_extraction.rs`](../src/pipeline/roi_extract
 
 **Fix**: Low-threshold guided grouping (described above). By grouping fragments under their parent low-threshold contour before scoring, the peel side's full area is correctly represented as `merged_area`, restoring the peel side's dominance in the texture score.
 
+### Round cross-section misidentified as coin (Fixed 2026-03-14)
+
+**Symptom**: When the pineapple cross-section is unusually round, its convex hull passes all three coin shape criteria (aspect > 0.95, fill ∈ [0.70, 0.88], circularity > 0.85). Since the old Tier 1 selection chose the **largest** passing candidate, the cross-section (much larger than the actual coin) won.
+
+**Fix**: Two-step selection in both Tier 1 and Tier 2. (1) **Relative-size gating**: when ≥2 candidates pass shape thresholds, exclude any with `hull_area > max_area_all × 0.25`, where `max_area_all` is the largest hull area among *all* contour candidates (including non-round fruit halves). (2) **Circularity scoring**: among surviving candidates, select the one closest to an ideal circle; ties broken by preferring smaller area.
+
 ## Known Edge Case
 
 ### Peel and cross-section merging at low threshold
