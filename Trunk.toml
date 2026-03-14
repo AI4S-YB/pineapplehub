@@ -8,4 +8,4 @@
 filehash = false
 
 [watch]
-ignore = ["docs"]
+ignore = ["docs", ".playwright-mcp"]
