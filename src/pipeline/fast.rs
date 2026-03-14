@@ -287,7 +287,7 @@ pub(crate) fn process_prepared(prep: &PreparedImage) -> Result<FruitletMetrics, 
     wlog!("[fast] step 3 done: px_per_mm={}", px_per_mm_val);
 
     wlog!("[fast] step 4: ROI extraction");
-    let roi_rect = super::roi_extraction::extract_best_roi(&smoothed_luma, px_per_mm_val, contours)?
+    let roi_rect = super::roi_extraction::extract_best_roi(&smoothed_luma, px_per_mm_val, contours, &_fused)?
         .ok_or(Error::General("No ROI found".into()))?;
 
     let hr_px_per_mm = px_per_mm_val * scale;

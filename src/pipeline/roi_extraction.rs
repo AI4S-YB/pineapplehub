@@ -1,5 +1,6 @@
 use image::GrayImage;
 use imageproc::{
+    contours::{self, BorderType},
     geometry::{contour_area as geometry_contour_area, min_area_rect},
     point::Point,
 };
@@ -99,6 +100,7 @@ pub(crate) fn extract_best_roi(
     smoothed: &GrayImage,
     px_per_mm: f32,
     contours: Vec<imageproc::contours::Contour<i32>>,
+    fused: &GrayImage,
 ) -> Result<Option<RotatedRect>, Error> {
     // 2. Filter by Physical Area (Doc Step 2.3)
     // Area > 0.2 * Area_coin
@@ -185,10 +187,93 @@ pub(crate) fn extract_best_roi(
     // Sort by Score Descending
     stats.sort_by(|a, b| b.2.total_cmp(&a.2));
 
-    if let Some((_, r_rect, score)) = stats.first() {
-        log::info!("[Step 5] Best ROI Score: {:.2}, Rect: {:?}", score, r_rect);
+    if let Some(&(best_idx, _, score)) = stats.first() {
+        // The best candidate identifies WHERE the peel-side fruit is, but its contour
+        // (from the Otsu binary mask) may be fragmented. ALL fragment-AABB-based fixes
+        // fail when the main fragment doesn't cover the full fruit extent.
+        //
+        // Solution: low-threshold the FULL smoothed grayscale image (fruit tissue ≈ 30+,
+        // background ≈ 0-15) to get complete, unfragmented fruit silhouettes. Then match
+        // the resulting contour to the scored target by centroid.
+        let (best_contour, _) = &candidates[best_idx];
 
-        Ok(Some(*r_rect))
+        // Compute best contour's centroid (to match against low-threshold contours)
+        let n = best_contour.points.len() as i64;
+        let (sx, sy) = best_contour.points.iter().fold((0i64, 0i64), |(sx, sy), pt| {
+            (sx + pt.x as i64, sy + pt.y as i64)
+        });
+        let best_cx = if n > 0 { (sx / n) as i32 } else { 0 };
+        let best_cy = if n > 0 { (sy / n) as i32 } else { 0 };
+
+        // Low-threshold the FULL smoothed image — no crop, no AABB limitation.
+        // No morphological closing: at threshold 25 the fruit is already one
+        // connected component (smoothed fruitlet gaps ≈ 30-50, above 25), while
+        // the background gap between objects (≈ 5-15) stays below 25, providing
+        // natural separation without closing (which was bridging close objects).
+        let low_binary = imageproc::contrast::threshold(
+            smoothed,
+            25,
+            imageproc::contrast::ThresholdType::Binary,
+        );
+
+        // Find contours directly on the low-threshold image
+        let low_contours = contours::find_contours::<i32>(&low_binary);
+
+        // Find the outer contour whose AABB contains the best candidate's centroid
+        // and has the largest AABB overlap with the best candidate
+        let (bb_x_min, bb_y_min, bb_x_max, bb_y_max) = best_contour.points.iter().fold(
+            (i32::MAX, i32::MAX, i32::MIN, i32::MIN),
+            |(xn, yn, xx, yx), pt| (xn.min(pt.x), yn.min(pt.y), xx.max(pt.x), yx.max(pt.y)),
+        );
+
+        let matching = low_contours
+            .iter()
+            .filter(|c| c.border_type == BorderType::Outer)
+            .filter(|c| {
+                let (rx_min, ry_min, rx_max, ry_max) = c.points.iter().fold(
+                    (i32::MAX, i32::MAX, i32::MIN, i32::MIN),
+                    |(xn, yn, xx, yx), pt| {
+                        (xn.min(pt.x), yn.min(pt.y), xx.max(pt.x), yx.max(pt.y))
+                    },
+                );
+                best_cx >= rx_min && best_cx <= rx_max && best_cy >= ry_min && best_cy <= ry_max
+            })
+            .max_by_key(|c| {
+                // Pick by AABB overlap area
+                let (rx_min, ry_min, rx_max, ry_max) = c.points.iter().fold(
+                    (i32::MAX, i32::MAX, i32::MIN, i32::MIN),
+                    |(xn, yn, xx, yx), pt| {
+                        (xn.min(pt.x), yn.min(pt.y), xx.max(pt.x), yx.max(pt.y))
+                    },
+                );
+                let overlap_w = (bb_x_max.min(rx_max) - bb_x_min.max(rx_min)).max(0) as i64;
+                let overlap_h = (bb_y_max.min(ry_max) - bb_y_min.max(ry_min)).max(0) as i64;
+                overlap_w * overlap_h
+            });
+
+        let r_rect = if let Some(rc) = matching {
+            let rect = min_area_rect(&rc.points);
+            let merged = get_rotated_rect_info(&rect);
+            log::info!(
+                "[Step 5] Best ROI (full low-thresh, {} pts): score={:.2}, rect={:?}",
+                rc.points.len(),
+                score,
+                merged
+            );
+            merged
+        } else {
+            // Fallback: use best contour's rect directly
+            let rect = min_area_rect(&best_contour.points);
+            let fallback = get_rotated_rect_info(&rect);
+            log::info!(
+                "[Step 5] Best ROI (fallback): score={:.2}, rect={:?}",
+                score,
+                fallback
+            );
+            fallback
+        };
+
+        Ok(Some(r_rect))
     } else {
         Err(Error::General("No valid ROI found".into()))
     }

@@ -102,13 +102,27 @@ $$\bar{g}_i = \frac{1}{N_{fg}} \sum_{(x,y) \in \mathcal{C}_i} \nabla I(x,y)$$
 4.  **Combined score** (balances texture richness with region size, using $\sqrt{A}$ rather than $A$ to prevent size dominance):
 $$\mathcal{S}_i = \bar{g}_i \cdot \sqrt{A_i}$$
 
-The candidate $\mathcal{C}^* = \arg\max_i \mathcal{S}_i$ is selected as the skin ROI.
+The candidate $\mathcal{C}^* = \arg\max_i \mathcal{S}_i$ is selected as the skin ROI **target**.
 
 *Physical rationale*: The pineapple skin is covered with raised fruitlet mounds separated by narrow dark crevices, producing high $\bar{g}$. The cut flesh surface is optically smooth, producing $\bar{g} \approx 0$. The coin, though high in edge contrast, is small in area, making $\sqrt{A}$ an effective size penalty.
 
-#### 2.3 Rotated ROI Extraction
+#### 2.3 Low-Threshold Bounding
 
-Given the selected candidate's minimum-area rectangle with centroid $(c_x, c_y)$, upright dimensions $(W_{roi}, H_{roi})$ — where the longer axis is assigned as height — and tilt angle $\theta_{tilt}$:
+The Otsu-derived contours from Step 1.2 may be **fragmented**: the dark inter-fruitlet crevices often fall below the Otsu threshold, splitting the fruit's outline into multiple disconnected white regions. The texture scoring correctly identifies **which** candidate is the peel side, but the winning candidate's contour may cover only a fraction of the fruit.
+
+To obtain the **complete** fruit silhouette for ROI computation, the smoothed grayscale image $I_{smooth}$ is globally re-thresholded at a low fixed level $\tau_{low} = 25$:
+
+$$B_{low} = \mathbf{1}[I_{smooth} > \tau_{low}]$$
+
+At this threshold, inter-fruitlet gaps (smoothed intensity ≈ 30–50) remain above threshold, making the fruit a single connected component. Meanwhile, the background (intensity ≈ 0–15) remains below threshold, naturally separating distinct objects without morphological closing.
+
+Contours are extracted from $B_{low}$. The contour whose AABB contains the centroid of $\mathcal{C}^*$ and has the largest AABB overlap area with $\mathcal{C}^*$ is selected as the bounding contour $\mathcal{C}_{bound}$. Its `min_area_rect` yields the final ROI parameters.
+
+> This **two-stage** design separates *identification* (Otsu + texture scoring) from *bounding* (low-threshold segmentation). Otsu contours excel at discriminating object types but fragment; low-threshold contours provide complete outlines but do not distinguish object types. The two stages are complementary.
+
+#### 2.4 Rotated ROI Extraction
+
+Given the bounding contour's minimum-area rectangle with centroid $(c_x, c_y)$, upright dimensions $(W_{roi}, H_{roi})$ — where the longer axis is assigned as height — and tilt angle $\theta_{tilt}$:
 
 1.  A square padded buffer of side $d = \lceil\sqrt{W_{roi}^2 + H_{roi}^2}\rceil$ is centred at $(c_x, c_y)$ (zero-padded where out-of-bounds).
 2.  The buffer is rotated by $-\theta_{tilt}$ about its centre using bilinear interpolation, aligning the fruit's long axis with the vertical.
