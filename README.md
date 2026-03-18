@@ -1,3 +1,5 @@
+<img align="right" src="assets/favicon.png" alt="logo" width="128">
+
 # PineappleHub
 
 <p align="center">
