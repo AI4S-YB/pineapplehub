@@ -300,8 +300,9 @@ struct App {
 
     /// Undo toast message text.
     undo_toast: Option<String>,
-
-    /// Countdown seconds remaining for undo (None = no active undo).
+    /// Batch completion summary toast: (success_count, failed_count).
+    batch_toast: Option<(u32, u32)>,
+    /// Countdown (ticks) before undo toast disappears.
     undo_countdown: Option<u8>,
 
     /// Soft-deleted data awaiting commit or undo.
@@ -375,8 +376,36 @@ struct App {
 }
 
 impl App {
-    fn new() -> Self {
-        Self {
+    fn new() -> (Self, Task<Message>) {
+        // Detect if camera mode was restored as AppendTo so we can
+        // pre-load the session list without waiting for user interaction.
+        let camera_mode = {
+            let base = js_interop::load_camera_mode()
+                .map(|k| CameraSessionMode::from_key(&k))
+                .unwrap_or_default();
+            if let CameraSessionMode::AppendTo(_) = &base {
+                let sid = js_interop::load_camera_append_session().unwrap_or_default();
+                CameraSessionMode::AppendTo(sid)
+            } else {
+                base
+            }
+        };
+
+        let is_append = matches!(camera_mode, CameraSessionMode::AppendTo(_));
+        let startup_task: Task<Message> =
+            if is_append {
+                Task::perform(
+                    async {
+                        let db = store::open_db().await.ok()?;
+                        store::load_session_summaries(&db).await.ok()
+                    },
+                    |opt| Message::CameraSessionsLoaded(opt.unwrap_or_default()),
+                )
+            } else {
+                Task::none()
+            };
+
+        let app = Self {
             upload: Upload::new(),
             now: Instant::now(),
             viewer: Viewer::new(),
@@ -398,6 +427,7 @@ impl App {
             editing_session_name: None,
             cache_warning: None,
             undo_toast: None,
+            batch_toast: None,
             undo_countdown: None,
             pending_delete: None,
             delete_confirm: None,
@@ -431,25 +461,17 @@ impl App {
                 .and_then(|w| w.inner_height().ok())
                 .and_then(|v| v.as_f64())
                 .unwrap_or(768.0) as f32,
-            camera_mode: {
-                let base = js_interop::load_camera_mode()
-                    .map(|k| CameraSessionMode::from_key(&k))
-                    .unwrap_or_default();
-                // Restore saved session_id if the mode was "append"
-                if let CameraSessionMode::AppendTo(_) = &base {
-                    let sid = js_interop::load_camera_append_session().unwrap_or_default();
-                    CameraSessionMode::AppendTo(sid)
-                } else {
-                    base
-                }
-            },
+            camera_mode,
             camera_queue: Vec::new(),
             camera_sessions: Vec::new(),
-            camera_sessions_loading: false,
+            // Mark loading=true so the picker shows "Loading..." until the
+            // startup task resolves (or false if mode is not AppendTo).
+            camera_sessions_loading: is_append,
             camera_capturing: false,
             camera_error: None,
             camera_batch_mode: None,
-        }
+        };
+        (app, startup_task)
     }
 
     /// Start the step-by-step debug pipeline for a specific job.
@@ -845,14 +867,17 @@ impl App {
                     matches!(j.status, JobStatus::Done | JobStatus::Error(_))
                 });
                 if all_done {
+                    // Show batch summary toast
+                    let ok = self.jobs.iter().filter(|j| j.status == JobStatus::Done).count() as u32;
+                    let fail = self.jobs.iter().filter(|j| matches!(j.status, JobStatus::Error(_))).count() as u32;
+                    self.batch_toast = Some((ok, fail));
+
                     // Take camera mode snapshot (clear so next upload is a fresh slate)
                     let batch_mode = self.camera_batch_mode.take();
 
                     if let Some(session_id) = self.current_session_id.take() {
                         let total_count = self.jobs.len() as u32;
-                        let failed_count = self.jobs.iter()
-                            .filter(|j| matches!(j.status, JobStatus::Error(_)))
-                            .count() as u32;
+                        let failed_count = fail;
 
                         let timestamp = js_sys::Date::now();
 
@@ -905,7 +930,18 @@ impl App {
                                                 success_count: total_count - failed_count,
                                                 failed_count,
                                                 starred: false,
-                                                name: None,
+                                                name: {
+                                                    // Default session name = local date-time
+                                                    // (user can rename later in History)
+                                                    use js_sys::Date;
+                                                    let d = Date::new_0();
+                                                    let y = d.get_full_year();
+                                                    let mo = d.get_month() + 1;
+                                                    let day = d.get_date();
+                                                    let h = d.get_hours();
+                                                    let mi = d.get_minutes();
+                                                    Some(format!("{y:04}-{mo:02}-{day:02} {h:02}:{mi:02}"))
+                                                },
                                             };
                                             match store::save_session(&db, &meta, &records).await {
                                                 Ok(()) => log::info!("Batch saved successfully"),
@@ -2338,18 +2374,25 @@ impl App {
                 left_col = left_col.push(text(&job.filename));
             }
         } else {
-            // Multiple files: name + status
+            // Multiple files: name + status, with color coding
             let file_list = column(self.jobs.iter().map(|job| {
                 let icon = match &job.status {
-                    JobStatus::Queued => icons::ICON_HOURGLASS,
+                    JobStatus::Queued    => icons::ICON_HOURGLASS,
                     JobStatus::Processing => icons::ICON_SYNC,
-                    JobStatus::Done => icons::ICON_CHECK_CIRCLE,
-                    JobStatus::Error(_) => icons::ICON_ERROR,
+                    JobStatus::Done      => icons::ICON_CHECK_CIRCLE,
+                    JobStatus::Error(_)  => icons::ICON_ERROR,
                 };
+                let is_error = matches!(job.status, JobStatus::Error(_));
+                let is_done  = job.status == JobStatus::Done;
+                let icon_color = if is_error { theme::danger() }
+                    else if is_done { theme::success() }
+                    else { Color { a: 0.55, ..theme::text_primary() } };
+                let name_color = if is_error { theme::danger() } else { theme::text_primary() };
+
                 let is_selected = self.selected_job == Some(job.id);
                 let row_content: Element<'_, Message> = row![
-                    text(icon).font(icons::ICON_FONT).size(14),
-                    text(&job.filename).width(Length::Fill),
+                    text(icon).font(icons::ICON_FONT).size(14).color(icon_color),
+                    text(&job.filename).width(Length::Fill).color(name_color),
                 ]
                 .spacing(8)
                 .into();
@@ -2404,38 +2447,100 @@ impl App {
                     ),
                 );
             } else if let Some(job) = self.selected_job.and_then(|id| self.jobs.get(id)) {
-                let status_text = match &job.status {
-                    JobStatus::Queued => "Queued".to_string(),
-                    JobStatus::Processing => "Processing...".to_string(),
-                    JobStatus::Done => "Done".to_string(),
-                    JobStatus::Error(e) => format!("Error: {e}"),
-                };
-                let mut info = column![
-                    text(&job.filename).size(18),
-                    text(status_text).size(14),
-                ]
-                .spacing(8)
-                .padding(20);
+                match &job.status {
+                    JobStatus::Error(err_msg) => {
+                        // ── Error card (improvement 4) ──
+                        // Parse the error string for a user-friendly suggestion.
+                        let suggestion = if err_msg.contains("ROI") || err_msg.contains("contour") || err_msg.contains("mask") {
+                            "No pineapple region was detected. Make sure the whole fruit is visible and well-lit."
+                        } else if err_msg.contains("scale") || err_msg.contains("calibrat") || err_msg.contains("marker") {
+                            "Scale calibration failed. Ensure the reference marker is fully visible and unobstructed."
+                        } else if err_msg.contains("decode") || err_msg.contains("image") || err_msg.contains("format") {
+                            "The image could not be decoded. Try re-capturing with a supported format (JPEG/PNG)."
+                        } else if err_msg.contains("fruitlet") || err_msg.contains("count") {
+                            "Fruitlet counting failed. The pineapple surface may be too blurry or overexposed."
+                        } else {
+                            "An unexpected error occurred. Re-capture the image and try again. If the problem persists, check the console log."
+                        };
 
-                if let Some(m) = &job.metrics {
-                    info = info.push(text(format!("H: {:.2} mm", m.major_length)).size(14));
-                    info = info.push(text(format!("D: {:.2} mm", m.minor_length)).size(14));
-                    info = info.push(text(format!("V: {:.0} mm³", m.volume)).size(14));
-                    if let Some(v) = m.a_eq {
-                        info = info.push(text(format!("a: {v:.2} mm")).size(14));
+                        col = col.push(
+                            container(
+                                column![
+                                    row![
+                                        text(icons::ICON_ERROR).font(icons::ICON_FONT).size(22)
+                                            .color(theme::danger()),
+                                        text("Analysis Failed").size(16).color(theme::danger()),
+                                    ]
+                                    .spacing(10)
+                                    .align_y(iced::Alignment::Center),
+                                    text(&job.filename).size(13)
+                                        .color(Color { a: 0.7, ..theme::text_primary() }),
+                                    container(
+                                        text(err_msg.as_str()).size(12)
+                                            .color(theme::danger()),
+                                    )
+                                    .style(|_t: &iced::Theme| iced::widget::container::Style {
+                                        background: Some(iced::Background::Color(
+                                            Color { a: 0.08, ..theme::danger() }
+                                        )),
+                                        border: iced::Border {
+                                            color: Color { a: 0.25, ..theme::danger() },
+                                            width: 1.0,
+                                            radius: 6.0.into(),
+                                        },
+                                        ..Default::default()
+                                    })
+                                    .padding([8, 10])
+                                    .width(Length::Fill),
+                                    row![
+                                        text(icons::ICON_INFO).font(icons::ICON_FONT).size(14)
+                                            .color(theme::warning()),
+                                        text(suggestion).size(12)
+                                            .color(Color { a: 0.85, ..theme::text_primary() }),
+                                    ]
+                                    .spacing(8)
+                                    .align_y(iced::Alignment::Start),
+                                ]
+                                .spacing(12)
+                                .padding(20),
+                            )
+                            .width(Length::Fill)
+                        );
                     }
-                    if let Some(v) = m.b_eq {
-                        info = info.push(text(format!("b: {v:.2} mm")).size(14));
-                    }
-                    if let Some(v) = m.surface_area {
-                        info = info.push(text(format!("S: {v:.0} mm²")).size(14));
-                    }
-                    if let Some(v) = m.n_total {
-                        info = info.push(text(format!("Nf: {v}")).size(14));
+                    _ => {
+                        let status_text = match &job.status {
+                            JobStatus::Queued     => "Queued".to_string(),
+                            JobStatus::Processing => "Processing…".to_string(),
+                            JobStatus::Done       => "Done".to_string(),
+                            JobStatus::Error(_)   => unreachable!(),
+                        };
+                        let mut info = column![
+                            text(&job.filename).size(18),
+                            text(status_text).size(14),
+                        ]
+                        .spacing(8)
+                        .padding(20);
+
+                        if let Some(m) = &job.metrics {
+                            info = info.push(text(format!("H: {:.2} mm", m.major_length)).size(14));
+                            info = info.push(text(format!("D: {:.2} mm", m.minor_length)).size(14));
+                            info = info.push(text(format!("V: {:.0} mm³", m.volume)).size(14));
+                            if let Some(v) = m.a_eq {
+                                info = info.push(text(format!("a: {v:.2} mm")).size(14));
+                            }
+                            if let Some(v) = m.b_eq {
+                                info = info.push(text(format!("b: {v:.2} mm")).size(14));
+                            }
+                            if let Some(v) = m.surface_area {
+                                info = info.push(text(format!("S: {v:.0} mm²")).size(14));
+                            }
+                            if let Some(v) = m.n_total {
+                                info = info.push(text(format!("Nf: {v}")).size(14));
+                            }
+                        }
+                        col = col.push(container(info));
                     }
                 }
-
-                col = col.push(container(info));
             }
 
             col.into()
@@ -2464,6 +2569,48 @@ impl App {
             .style(theme::tooltip_style)
             .into()
         };
+
+        // ── Batch summary toast ──
+        if let Some((ok, fail)) = self.batch_toast {
+            let (icon, msg, color) = if fail == 0 {
+                (icons::ICON_CHECK_CIRCLE,
+                 format!("Analysis complete: {} image(s) succeeded", ok),
+                 theme::success())
+            } else if ok == 0 {
+                (icons::ICON_ERROR,
+                 format!("Analysis failed: {} image(s) could not be processed", fail),
+                 theme::danger())
+            } else {
+                (icons::ICON_WARNING,
+                 format!("Analysis complete: {} succeeded, {} failed", ok, fail),
+                 theme::warning())
+            };
+            right_col = right_col.push(
+                container(
+                    row![
+                        text(icon).font(icons::ICON_FONT).size(16).color(color),
+                        text(msg).size(13).color(color),
+                    ]
+                    .spacing(8)
+                    .align_y(iced::Alignment::Center),
+                )
+                .style(move |_t: &iced::Theme| iced::widget::container::Style {
+                    background: Some(iced::Background::Color(
+                        Color { a: 0.10, ..color }
+                    )),
+                    border: iced::Border {
+                        color: Color { a: 0.30, ..color },
+                        width: 1.0,
+                        radius: 8.0.into(),
+                    },
+                    ..Default::default()
+                })
+                .padding([10, 14])
+                .width(Length::Fill),
+            );
+        }
+
+        // Results table header
         let header = row![
             tip_hdr("File", "Source image filename", 3),
             tip_hdr("H", MetricColumn::Height.description(), 1),
@@ -2477,45 +2624,66 @@ impl App {
         .spacing(4);
         right_col = right_col.push(container(header).style(theme::table_header_style).padding([8, 6]));
 
-        let completed_jobs: Vec<&Job> = self
-            .jobs
-            .iter()
-            .filter(|j| j.status == JobStatus::Done)
+        // Show ALL jobs (done = metrics, error = dashes, others = hidden until done)
+        let finished_jobs: Vec<&Job> = self.jobs.iter()
+            .filter(|j| matches!(j.status, JobStatus::Done | JobStatus::Error(_)))
             .collect();
 
-        if completed_jobs.is_empty() {
+        if finished_jobs.is_empty() {
+            let pending = self.jobs.iter().any(|j| {
+                matches!(j.status, JobStatus::Queued | JobStatus::Processing)
+            });
+            let placeholder = if pending { "Analyzing…" } else { "No results yet" };
             right_col = right_col.push(
-                container(text("No results yet"))
+                container(text(placeholder).color(Color { a: 0.55, ..theme::text_primary() }))
                     .center(Length::Fill)
                     .padding(20),
             );
         } else {
-            let rows = column(completed_jobs.iter().enumerate().map(|(idx, job)| {
-                let m = job.metrics.as_ref().unwrap();
+            let rows = column(finished_jobs.iter().enumerate().map(|(idx, job)| {
                 let row_bg = theme::table_row_bg(idx, false, false);
-                container(
-                    row![
-                        text(&job.filename).size(13).width(Length::FillPortion(3)),
-                        text(format!("{:.1}", m.major_length)).size(13).width(Length::FillPortion(1)),
-                        text(format!("{:.1}", m.minor_length)).size(13).width(Length::FillPortion(1)),
-                        text(format!("{:.0}", m.volume)).size(13).width(Length::FillPortion(1)),
-                        text(m.a_eq.map_or("-".into(), |v| format!("{v:.1}"))).size(13).width(Length::FillPortion(1)),
-                        text(m.b_eq.map_or("-".into(), |v| format!("{v:.1}"))).size(13).width(Length::FillPortion(1)),
-                        text(m.surface_area.map_or("-".into(), |v| format!("{v:.0}"))).size(13).width(Length::FillPortion(1)),
-                        text(m.n_total.map_or("-".into(), |v| format!("{v}"))).size(13).width(Length::FillPortion(1)),
-                    ]
-                    .spacing(4)
-                    .align_y(iced::Alignment::Center),
-                )
-                .style(row_bg)
-                .padding([6, 6])
-                .into()
+                let dash = || text("—").size(13).width(Length::FillPortion(1))
+                    .color(Color { a: 0.55, ..theme::text_primary() });
+                if let Some(m) = &job.metrics {
+                    container(
+                        row![
+                            text(&job.filename).size(13).width(Length::FillPortion(3)),
+                            text(format!("{:.1}", m.major_length)).size(13).width(Length::FillPortion(1)),
+                            text(format!("{:.1}", m.minor_length)).size(13).width(Length::FillPortion(1)),
+                            text(format!("{:.0}", m.volume)).size(13).width(Length::FillPortion(1)),
+                            text(m.a_eq.map_or("-".into(), |v| format!("{v:.1}"))).size(13).width(Length::FillPortion(1)),
+                            text(m.b_eq.map_or("-".into(), |v| format!("{v:.1}"))).size(13).width(Length::FillPortion(1)),
+                            text(m.surface_area.map_or("-".into(), |v| format!("{v:.0}"))).size(13).width(Length::FillPortion(1)),
+                            text(m.n_total.map_or("-".into(), |v| format!("{v}"))).size(13).width(Length::FillPortion(1)),
+                        ]
+                        .spacing(4)
+                        .align_y(iced::Alignment::Center),
+                    )
+                    .style(row_bg)
+                    .padding([6, 6])
+                    .into()
+                } else {
+                    // Failed job: red filename + dash placeholders
+                    container(
+                        row![
+                            text(&job.filename).size(13).width(Length::FillPortion(3))
+                                .color(theme::danger()),
+                            dash(), dash(), dash(), dash(), dash(), dash(), dash(),
+                        ]
+                        .spacing(4)
+                        .align_y(iced::Alignment::Center),
+                    )
+                    .style(row_bg)
+                    .padding([6, 6])
+                    .into()
+                }
             }))
             .spacing(1);
             right_col = right_col.push(scrollable(rows));
         }
 
-        if !completed_jobs.is_empty() {
+        let has_done = self.jobs.iter().any(|j| j.status == JobStatus::Done);
+        if has_done {
             right_col = right_col.push(button("Export CSV").on_press(Message::ExportCsv));
         }
 
@@ -2644,10 +2812,15 @@ fn main() -> iced::Result {
     console_log::init().expect("Initialize logger");
     console_error_panic_hook::set_once();
 
-    iced::application::timed(App::new, App::update, App::subscription, App::view)
-        .centered()
-        .theme(pineapple_app_theme)
-        .font(NOTO_SANS_SC_BYTES)
-        .font(icons::ICON_FONT_BYTES)
-        .run()
+    iced::application::timed(
+        || App::new(),
+        App::update,
+        App::subscription,
+        App::view,
+    )
+    .centered()
+    .theme(pineapple_app_theme)
+    .font(NOTO_SANS_SC_BYTES)
+    .font(icons::ICON_FONT_BYTES)
+    .run()
 }
