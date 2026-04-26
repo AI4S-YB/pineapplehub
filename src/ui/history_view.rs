@@ -452,7 +452,14 @@ pub(crate) fn view_sessions_sidebar<'a>(
                 row![cleanup_btn, clearall_btn].spacing(6)
             );
         } else {
-            bottom = bottom.push(cleanup_btn);
+            // No sessions: render cleanup at half-width so it doesn't stretch full sidebar
+            bottom = bottom.push(
+                row![
+                    cleanup_btn,
+                    iced::widget::space::horizontal(),
+                ]
+                .spacing(6),
+            );
         }
     } else {
         // ── Desktop: full-text buttons stacked vertically ──

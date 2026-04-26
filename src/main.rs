@@ -2262,6 +2262,11 @@ impl App {
 
         // ── Analyze button ──
         let analyze_btn: Option<Element<'_, Message>> = if !self.camera_queue.is_empty() {
+            // In AppendTo mode with no sessions loaded yet, disable the button
+            let append_no_session = matches!(&self.camera_mode, CameraSessionMode::AppendTo(_))
+                && self.camera_sessions.is_empty()
+                && !self.camera_sessions_loading;
+
             let mut btn = button(
                 row![
                     text(icons::ICON_MONITORING).font(icons::ICON_FONT).size(16),
@@ -2272,7 +2277,9 @@ impl App {
             )
             .style(theme::primary_button_style)
             .padding([14, 28]);
-            btn = btn.on_press(Message::CameraStartAnalysis);
+            if !append_no_session {
+                btn = btn.on_press(Message::CameraStartAnalysis);
+            }
             Some(btn.into())
         } else {
             None
