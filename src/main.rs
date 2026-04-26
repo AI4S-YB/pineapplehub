@@ -2734,6 +2734,7 @@ impl App {
                                 delete_confirm,
                                 clear_all_confirm,
                                 editing_session_name,
+                                js_interop::is_mobile(),
                             ),
                         )
                         .style(theme::sidebar_style)
