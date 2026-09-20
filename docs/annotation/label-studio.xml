@@ -1,0 +1,45 @@
+<!-- Target: Label Studio Community 1.23.0. Export native JSON to preserve region IDs. -->
+<View>
+  <Image name="image" value="$image" zoom="true" zoomControl="true" rotateControl="false" smoothing="false"/>
+
+  <Header value="看得清才标，看不清不要猜。有疑问可直接选最后的需要负责人复核。" size="5"/>
+  <Header value="换标注类型或换下一枚果眼前，先按 Esc 取消选中。修补旧区域时，在右侧列表选中原来那一条。" size="5"/>
+
+  <Header value="1. 分别框出要测的菠萝和参考牌"/>
+  <RectangleLabels name="target_fruit" toName="image" maxUsages="1" canRotate="false">
+    <Label value="要测的菠萝果体" background="#FFD400"/>
+  </RectangleLabels>
+  <RectangleLabels name="reference_tag" toName="image" maxUsages="1" canRotate="false">
+    <Label value="参考牌黑白码正方形" background="#E53935"/>
+  </RectangleLabels>
+
+  <Header value="参考牌黑白码实测边长（毫米；按记录填写，不知道就留空）" size="5"/>
+  <Number name="tag_side_mm" toName="image" min="1" step="0.1"/>
+
+  <Header value="2. 涂出目标菠萝看得见的果体，不含冠芽、叶片和果柄"/>
+  <BitmaskLabels name="fruit_body" toName="image" maxUsages="1">
+    <Label value="可见果体" background="#00BCD4"/>
+  </BitmaskLabels>
+
+  <Header value="3. 逐枚涂果眼，每枚在右侧区域列表中单独占一条"/>
+  <Header value="涂完一枚后按 Esc，再选果眼标签，再涂下一枚；同一枚可以分几笔补齐。" size="5"/>
+  <BitmaskLabels name="fruitlets" toName="image">
+    <Label value="清楚果眼" background="#00C853" hint="涂整枚小果的范围，不只涂中间的小点"/>
+    <Label value="残缺果眼" background="#2962FF" hint="能确定是独立一枚，但只有部分可见；只涂看得见的部分"/>
+  </BitmaskLabels>
+  <BitmaskLabels name="fruitlet_uncertain" toName="image">
+    <Label value="果眼边界看不清的区域" background="#AA00FF" hint="不知道几枚果眼怎样分开时，涂出这一片，不猜数量和边界"/>
+  </BitmaskLabels>
+
+  <Header value="4. 整颗果实人工数出的果眼总数（按实测记录填写；没数过就留空）"/>
+  <Number name="total_fruitlet_count" toName="image" min="1" step="1"/>
+
+  <Header value="5. 本次标注情况"/>
+  <Choices name="annotation_status" toName="image" choice="single-radio" required="true">
+    <Choice value="已按规则完成"/>
+    <Choice value="需要负责人复核"/>
+  </Choices>
+  <Header value="不知道要测哪颗、无法辨认目标或不知道如何标，都选需要负责人复核；可以提交已经标好的部分。" size="5"/>
+  <Header value="备注（有疑问时写一句原因）" size="5"/>
+  <TextArea name="note" toName="image" rows="2"/>
+</View>
