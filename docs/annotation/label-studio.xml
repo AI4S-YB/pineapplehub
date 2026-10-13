@@ -3,26 +3,32 @@
   <Image name="image" value="$image" zoom="true" zoomControl="true" rotateControl="false" smoothing="false"/>
 
   <Header value="看得清才标，看不清不要猜。有疑问可直接选最后的需要负责人复核。" size="5"/>
-  <Header value="换标注类型或换下一枚果眼前，先按 Esc 取消选中。修补旧区域时，在右侧列表选中原来那一条。" size="5"/>
+  <Header value="换标注类型前先按 Esc 取消选中。修补旧区域时，在右侧列表选中原来那一条。新画果眼或紫色区域时，按第 3 步使用 Ctrl。" size="5"/>
 
   <Header value="1. 分别框出要测的菠萝和参考牌"/>
+  <Header value="黄色框包住可见果体及其附着的外伸小片状结构，四边尽量贴近；不要为冠芽或果柄扩大框，不要切掉顶层小果。框内有少量背景或遮挡叶片是正常的。" size="5"/>
   <RectangleLabels name="target_fruit" toName="image" maxUsages="1" canRotate="false">
     <Label value="要测的菠萝果体" background="#FFD400"/>
   </RectangleLabels>
+  <Header value="红色框尽量贴近参考码的黑色外框，不按纸张边缘画框，不包含长柄或大片留白。" size="5"/>
   <RectangleLabels name="reference_tag" toName="image" maxUsages="1" canRotate="false">
     <Label value="参考牌黑白码正方形" background="#E53935"/>
   </RectangleLabels>
 
-  <Header value="参考牌黑白码实测边长（毫米；按记录填写，不知道就留空）" size="5"/>
+  <Header value="参考牌黑白码实测边长（毫米；量黑色外框，不含白边，按记录填写，不知道就留空）" size="5"/>
   <Number name="tag_side_mm" toName="image" min="1" step="0.1"/>
 
-  <Header value="2. 涂出目标菠萝看得见的果体，不含冠芽、叶片和果柄"/>
+  <Header value="2. 涂出目标菠萝看得见的果体"/>
+  <Header value="沿果体正常凹凸涂色，贴合果面的小片状组织一起涂，不要画成光滑椭圆。明显离开果面、向外翘出的细长片状尖端不涂。" size="5"/>
+  <Header value="冠芽、遮挡叶片、果柄和背景不涂；被挡住的部分留空。分界拿不准时，选需要负责人复核并备注。" size="5"/>
   <BitmaskLabels name="fruit_body" toName="image" maxUsages="1">
     <Label value="可见果体" background="#00BCD4"/>
   </BitmaskLabels>
 
   <Header value="3. 逐枚涂果眼，每枚在右侧区域列表中单独占一条"/>
-  <Header value="涂完一枚后按 Esc，再选果眼标签，再涂下一枚；同一枚可以分几笔补齐。" size="5"/>
+  <Header value="果眼边界按第 2 步处理表面组织；不把小片状结构单独算一枚，也不顺着它跨到相邻果眼。" size="5"/>
+  <Header value="新画一枚：先松开鼠标，按 Esc，再选标签；鼠标移到图内无框、无涂色的空白处，先按住 Ctrl，再移回果眼涂色。" size="5"/>
+  <Header value="同一枚可分几笔，期间保持 Ctrl 按住；涂完先松鼠标，再松 Ctrl，确认右侧新增一条。换下一枚或新画紫色区域时重复以上步骤。" size="5"/>
   <BitmaskLabels name="fruitlets" toName="image">
     <Label value="清楚果眼" background="#00C853" hint="涂整枚小果的范围，不只涂中间的小点"/>
     <Label value="残缺果眼" background="#2962FF" hint="能确定是独立一枚，但只有部分可见；只涂看得见的部分"/>
