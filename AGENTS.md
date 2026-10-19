@@ -23,10 +23,13 @@
 - Issue #21 is the students' official collection/annotation guide. Keep model
   research, training architecture, and development milestones out of its body:
   https://github.com/AI4S-YB/pineapplehub/issues/21
-- The project was empty on 2026-09-20, so this configuration needs no legacy-label
-  migration. Recheck actual data before future schema changes. The maintained
-  interface is `docs/annotation/label-studio.xml`; verify the deployed Label Studio
-  version before recommending different controls or an upgrade.
+- Real tasks, annotations, and drafts now exist. Preserve original files, region
+  IDs, measurements, and draft identity when changing the schema; validate
+  conversion and restoration on a copy before coordinating production changes.
+  The maintained interface is `docs/annotation/label-studio.xml`; verify the
+  deployed Label Studio version before changing controls or recommending upgrades.
+- See [current research architecture](docs/architecture.md) for development
+  targets, data meanings, current code, and scientific validation boundaries.
 
 ## Rust And Burn
 

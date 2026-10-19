@@ -1,55 +1,67 @@
-<!-- Target: Label Studio Community 1.23.0. Export native JSON to preserve region IDs. -->
+<!-- Target: Label Studio Community 1.23.2 with the reviewed native Number empty-value fix. Export native JSON to preserve region IDs. -->
 <View>
   <Image name="image" value="$image" zoom="true" zoomControl="true" rotateControl="false" smoothing="false"/>
 
-  <Header value="看得清才标，看不清不要猜。有疑问可直接选最后的需要负责人复核。" size="5"/>
-  <Header value="换标注类型前先按 Esc 取消选中。修补旧区域时，在右侧列表选中原来那一条。新画果眼或紫色区域时，按第 3 步使用 Ctrl。" size="5"/>
+  <Header value="看得清才标，看不清不要猜。有疑问选需要负责人复核，写一句原因并提交；可以提交已经完成的部分，不自行删图。" size="5"/>
+  <Header value="只标负责人指定的果实，不标背景菠萝。参考牌不用框选、涂色或点角。换类型或新建区域前先取消旧区域选中；修补时选回原记录。" size="5"/>
 
-  <Header value="1. 分别框出要测的菠萝和参考牌"/>
-  <Header value="黄色框包住所有可见果体及其附着的外伸小片状结构，包括冠芽旁、底部叶片旁和缝隙里露出的零星部分。四边尽量贴近，不要为冠芽或果柄扩大框。" size="5"/>
-  <Header value="框内有背景或遮挡叶片是正常的，不要为排除它们而切掉可见果体。青色果体应全部在黄色框内；发现框外有可见果体，先调框再补涂。" size="5"/>
-  <RectangleLabels name="target_fruit" toName="image" maxUsages="1" canRotate="false">
-    <Label value="要测的菠萝果体" background="#FFD400"/>
-  </RectangleLabels>
-  <Header value="红色框尽量贴近参考码的黑色外框，不按纸张边缘画框，不包含长柄或大片留白。" size="5"/>
-  <RectangleLabels name="reference_tag" toName="image" maxUsages="1" canRotate="false">
-    <Label value="参考牌黑白码正方形" background="#E53935"/>
-  </RectangleLabels>
+  <Header value="1. 填写同一颗果实的实测记录"/>
+  <Header value="条件允许时尽量实测；只能可靠测得部分项目时，保留这些项目，其余留空。尺寸用毫米、可填一位小数，总数用正整数；不猜数、不用 0 占位。已填数值可以清空。" size="5"/>
+  <Header value="参考牌黑色正方形实测边长（毫米；不含白边；每张任务填写对应实物牌的数值，不抄 PDF 文件名）" size="5"/>
+  <Number name="tag_side_mm" toName="image" min="0.1" step="0.1"/>
+  <Header value="果体长度（毫米；沿冠芽端到果柄端的直线长度，不含冠芽和果柄）" size="5"/>
+  <Number name="fruit_length_mm" toName="image" min="0.1" step="0.1"/>
+  <Header value="果体最大宽度（毫米；垂直于上述纵向的整颗最大直线横径，不是任意照片投影宽度；扁果可以宽大于长，不交换长宽）" size="5"/>
+  <Number name="fruit_max_width_mm" toName="image" min="0.1" step="0.1"/>
+  <Header value="整果果眼总数（人工数出的同一颗果实总数，包含背面；不是照片可见数量；没数过、记录不清或无法对应就留空）" size="5"/>
+  <Number name="total_fruitlet_count" toName="image" min="1" step="1"/>
+  <Header value="记录须对应照片中的同一对象和状态，不能用数周后成熟果的尺寸回填早期照片。原图由开发端从系统取得，不需重复上传、手填编号或维护对应表。" size="5"/>
 
-  <Header value="参考牌黑白码实测边长（毫米；量黑色外框，不含白边，按记录填写，不知道就留空）" size="5"/>
-  <Number name="tag_side_mm" toName="image" min="1" step="0.1"/>
+  <Header value="2. 先逐枚涂果眼和紫色区域"/>
+  <Header value="果眼是相邻沟壑圈定的整枚小果，不是中间的小点、花盘或凹陷。完整可见涂整枚；部分可见只涂可见部分，不补画隐藏部分。每枚独立一条记录。" size="5"/>
+  <Header value="贴合果面的小片组织随所属果眼保留；明显外翘的细长尖端不涂。不把小片组织另算一枚，也不顺着它跨到邻眼。挡住边界时按可辨程度选蓝色或紫色。" size="5"/>
+  <Header value="普通新建：先松开鼠标，按 Esc 取消旧区域选中，再选绿色、蓝色或紫色标签；尽量从尚未涂色的位置起笔。同一枚可分多笔，期间不按 Esc。完成后检查右侧新增独立记录；换下一枚重复上述顺序。" size="5"/>
+  <Header value="需要重叠起笔：先松开鼠标、按 Esc、选标签；鼠标移到图片内、目标果实之外没有涂色的空白处；先按住 Ctrl，再移回要画的位置。保持 Ctrl 涂这一枚，可分多笔，期间不按 Esc；先松开鼠标，再松开 Ctrl，检查新增独立记录。" size="5"/>
+  <Header value="Ctrl 方法用于已有涂色上新建、青色后补新果眼，以及最后画青色却没有合适空白起点时。仅松鼠标或一直按 Ctrl 换下一枚都不代表新建；每换一枚仍须 Esc、选标签。隐藏涂色只帮助看原图，不能代替 Ctrl 重叠起笔。" size="5"/>
+  <Header value="修补旧果眼时在右侧选回对应记录，再用笔刷或橡皮修改。新紫色区域按相同新建流程，不在旧果眼仍选中时直接换标签。仍不能操作时保留已有内容，备注原因提交复核，不删掉重画。" size="5"/>
+  <BitmaskLabels name="fruitlets" toName="image">
+    <Label value="完整可见果眼" background="#00C853" hint="能看清独立一枚的完整边界；沿整枚外轮廓涂满，不连入邻眼"/>
+    <Label value="部分可见果眼" background="#2962FF" hint="确认是独立一枚，但转到侧面或被遮挡；只涂可见部分"/>
+  </BitmaskLabels>
+  <BitmaskLabels name="fruitlet_uncertain" toName="image">
+    <Label value="果眼边界看不清的区域" background="#AA00FF" hint="无法确定怎样分开或有几枚；标出这一片，不猜数量并提交复核"/>
+  </BitmaskLabels>
+  <Header value="紫色既不是一枚果眼，也不是确认背景。能确认是果体但果眼分不开的地方，先标紫色，最后仍涂青色；有紫色须提交负责人复核。" size="5"/>
 
-  <Header value="2. 涂出目标菠萝看得见的果体"/>
-  <Header value="所有能确认的可见果体都要涂，包括冠芽旁、底部叶片旁和缝隙里露出的零星部分。即使彼此不相连，也保存在同一条可见果体中；补涂时选中原来那条。" size="5"/>
-  <Header value="沿果体正常凹凸涂色，贴合果面的小片状组织一起涂，不要画成光滑椭圆。明显离开果面、向外翘出的细长片状尖端不涂。" size="5"/>
-  <Header value="冠芽、遮挡叶片、果柄和背景不涂；被挡住的部分留空。涂色可以有缺口和分开的小块，不要跨过叶片或背景连起来。" size="5"/>
-  <Header value="阴影中仍能确认的果体也要涂。涂色遮住细节时，先隐藏涂色看原图；无法确认或分界拿不准时，选需要负责人复核并备注。" size="5"/>
+  <Header value="3. 最后涂全部可见果体"/>
+  <Header value="按上述新建顺序选青色；已有涂色上起笔用完整 Ctrl 方法。所有能确认的可见果体都涂，包括冠芽旁、底部叶片旁、缝隙里的零星部分及阴影中仍可辨认的部分。无需完全无遮挡或连成一片。" size="5"/>
+  <Header value="沿正常凹凸绘制，不画成光滑椭圆；贴合果面的组织一起涂，不因像小叶片就挖掉。不因冠芽或叶片靠近而漏掉顶层真正果眼，也不把冠芽交界的小叶片涂成青色。" size="5"/>
+  <Header value="冠芽叶片、遮挡叶片、果柄、背景和明显外翘的细长尖端不涂。遮挡处留空，允许缺口、空洞和分离小块，不跨过叶片或背景强行连接。" size="5"/>
+  <Header value="全部可见部分保存在同一条可见果体记录；补涂、修边选回原记录，不另建第二个果体。已有绿、蓝、紫色区域保持独立，不能合并或丢失。" size="5"/>
+  <Header value="涂色挡住细节时暂时隐藏，对照原图。边界拿不准时保留确定部分，备注位置交负责人，不必猜植物学名称。" size="5"/>
   <BitmaskLabels name="fruit_body" toName="image" maxUsages="1">
     <Label value="可见果体" background="#00BCD4"/>
   </BitmaskLabels>
 
-  <Header value="3. 逐枚涂果眼，每枚在右侧区域列表中单独占一条"/>
-  <Header value="果眼边界按第 2 步处理表面组织；不把小片状结构单独算一枚，也不顺着它跨到相邻果眼。" size="5"/>
-  <Header value="能确认是果体、但果眼分不开时，青色果体照常涂，再把分不清的那片标成紫色并选需要负责人复核；紫色区域不算一枚果眼。" size="5"/>
-  <Header value="新画一枚：先松开鼠标，按 Esc，再选标签；鼠标移到图内无框、无涂色的空白处，先按住 Ctrl，再移回果眼涂色。" size="5"/>
-  <Header value="同一枚可分几笔，期间保持 Ctrl 按住；涂完先松鼠标，再松 Ctrl，确认右侧新增一条。换下一枚或新画紫色区域时重复以上步骤。" size="5"/>
-  <BitmaskLabels name="fruitlets" toName="image">
-    <Label value="清楚果眼" background="#00C853" hint="涂整枚小果的范围，不只涂中间的小点"/>
-    <Label value="残缺果眼" background="#2962FF" hint="能确定是独立一枚，但只有部分可见；只涂看得见的部分"/>
-  </BitmaskLabels>
-  <BitmaskLabels name="fruitlet_uncertain" toName="image">
-    <Label value="果眼边界看不清的区域" background="#AA00FF" hint="不知道几枚果眼怎样分开时，涂出这一片，不猜数量和边界"/>
-  </BitmaskLabels>
+  <Header value="4. 填写中央代表性果眼实测"/>
+  <Header value="仅选实际测过的赤道面中央 1–2 枚完整果眼，分别填各自原始值，不先算平均数。按每枚自身最长直线跨度及垂直方向最大跨度测量；倾斜时随它自身方向，不沿表面弧线。" size="5"/>
+  <Header value="在右侧列表选中对应完整果眼后显示字段。只能可靠对应一枚就填一枚；未测、记录不清或无法对应留空。其余果眼照常逐枚标轮廓，不要求逐枚实测，不用部分可见残片代替完整尺寸。" size="5"/>
+  <View visibleWhen="region-selected" whenTagName="fruitlets" whenLabelValue="完整可见果眼">
+    <Header value="所选完整果眼长径（毫米；该枚自身最长直线跨度）" size="5"/>
+    <Number name="fruitlet_long_diameter_mm" toName="image" perRegion="true" min="0.1" step="0.1"/>
+    <Header value="所选完整果眼宽径（毫米；垂直于该枚长径的最大直线跨度）" size="5"/>
+    <Number name="fruitlet_short_diameter_mm" toName="image" perRegion="true" min="0.1" step="0.1"/>
+  </View>
+  <Header value="清空一个测量字段只撤回该字段；同枚另一个字段、其他果眼和全部轮廓都保留。缺测留空，不填 0 或估算值。" size="5"/>
 
-  <Header value="4. 整颗果实人工数出的果眼总数（按实测记录填写；没数过就留空）"/>
-  <Number name="total_fruitlet_count" toName="image" min="1" step="1"/>
-
-  <Header value="5. 本次标注情况"/>
+  <Header value="5. 检查后提交"/>
+  <Header value="检查：只标目标；果眼每枚独立，完整、部分可见、紫色选择正确，无补画隐藏部分；青色不漏确定小块和阴影，全部仍一条；无误涂冠芽、叶片、果柄、背景和外翘尖端，无跨遮挡连接；果眼分不清但果体确定处保留紫色和青色；实测单位、方向和对象正确，总数含背面，缺测空白。" size="5"/>
   <Choices name="annotation_status" toName="image" choice="single-radio" required="true">
     <Choice value="已按规则完成"/>
     <Choice value="需要负责人复核"/>
   </Choices>
-  <Header value="不知道要测哪颗、无法辨认目标或不知道如何标，都选需要负责人复核；可以提交已经标好的部分。" size="5"/>
+  <Header value="能按规则完成选已按规则完成；有紫色，或对目标、参考牌、边界、标法、操作有疑问，选需要负责人复核，备注一句原因。不知道目标、无法辨认或不知如何继续也可直接复核。" size="5"/>
+  <Header value="可以提交已完成部分，不硬画、不自行删图。补拍、重标或是否采用由负责人决定，不另选作废、主训练可用或遮挡百分比。完成是操作状态，不等于测量有效。" size="5"/>
   <Header value="备注（有疑问时写一句原因）" size="5"/>
   <TextArea name="note" toName="image" rows="2"/>
 </View>

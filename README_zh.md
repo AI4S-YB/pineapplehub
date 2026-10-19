@@ -40,6 +40,9 @@
 
 ## 文档
 
+- [当前研究架构（开发者）](docs/architecture.md)
+- [正式采集与标注指南（学生，Issue #21）](https://github.com/AI4S-YB/pineapplehub/issues/21)
+
 - [算法文档](docs/algorithms/algorithm_zh.md)
 - [调试图解读](docs/user_guide/debug_interpretation_zh.md)
 
