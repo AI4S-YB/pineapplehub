@@ -118,6 +118,9 @@ docs/
 
 ## Documentation
 
+- [Current research architecture (Chinese)](docs/architecture.md): development targets, data contracts, and validation boundaries.
+- [Issue #21](https://github.com/AI4S-YB/pineapplehub/issues/21): the single student guide; maintain the [annotation XML](docs/annotation/label-studio.xml) and illustrations here.
+
 When modifying algorithms, update the corresponding documentation:
 
 - [algorithm.md](docs/algorithms/algorithm.md) (English)

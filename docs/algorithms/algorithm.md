@@ -1,3 +1,5 @@
+> Historical design, still corresponding to the current code. See the [current research architecture (Chinese)](../architecture.md) for the whole-fruit study; historical accuracy claims are not validation of that study.
+
 # Pineapple Measurement Algorithm Pipeline
 
 *Surface Texture Analysis via Inverse Cylindrical Perspective Correction*

@@ -40,6 +40,9 @@ Upload a photo of a bisected pineapple with a 1 Yuan coin for scale, and Pineapp
 
 ## Documentation
 
+- [Current research architecture (Chinese, for developers)](docs/architecture.md)
+- [Official collection and annotation guide (Chinese, Issue #21)](https://github.com/AI4S-YB/pineapplehub/issues/21)
+
 - [Algorithm Documentation](docs/algorithms/algorithm.md)
 - [Debug Image Interpretation](docs/user_guide/debug_interpretation.md)
 
