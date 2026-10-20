@@ -6,6 +6,13 @@
   backdrop, overhead setup, coin reference, and fragile traditional-CV detection
   belong to the prototype, not the target collection requirements. Use machine
   learning to improve recognition while retaining useful geometric estimation.
+- Design for small models running in the user's browser, with limited input
+  resolution, memory, and latency. The coding agent's or a large multimodal
+  model's visual reasoning is not evidence of their capabilities. Treat axis,
+  orientation, visibility, and primary-fruitlet selection as unvalidated until
+  tested with the actual model, input resolution, and target-device budget.
+  Keep untested routes open, and distinguish sufficient annotation targets
+  from sufficient data or demonstrated model accuracy.
 - Before replacing the existing geometric approximation, read
   `docs/algorithms/cylindrical-approximation-review.md`. Its parameters use the
   upright fruit crop, not the original photo width. Preserve the owner's reported
