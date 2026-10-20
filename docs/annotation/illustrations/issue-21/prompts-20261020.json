@@ -1,0 +1,6 @@
+{
+  "tool": "built-in image_gen",
+  "asset": "08-fruitlet-measurements.png",
+  "editTargetCommit": "c9d9ff6a7651e618b74ea27541c1b148e693d665",
+  "prompt": "Use case: text-localization\nAsset type: Chinese pineapple annotation instructional poster, existing image 8.\nInput image is the edit target.\nChange ONLY the MIDDLE COLUMN of the BOTTOM FOOTER (around x390..745,y1385..1510 in the 1024x1536 original).\nDelete the obsolete sentence “旧任务两枚实测都保留，不删除、不取平均”.\nReplace that middle footer column's text with these two lines, verbatim:\n“只填写所选这枚”\n“果眼的实测”\nKeep the small bookmark-like icon or replace it with a simple matching ruler icon if needed to fit.\nEverything else must stay identical: original 1024x1536 portrait canvas, off-white/green design, all other Chinese words, pineapple anatomy, exactly ONE orange central fruitlet, vertical axis midpoint, measurement arrows, right-angle relationship between long diameter and transverse caliper width, measurement fields, bottom LEFT missing-measurement note and bottom RIGHT reviewer note.\nDo not add any old-task, compatibility, migration, two-fruitlet or regression wording. No new elements. Preserve top three panels exactly."
+}
