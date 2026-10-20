@@ -1,5 +1,17 @@
 # Project Guidance
 
+## Product Direction
+
+- Build a consumer app for ordinary field and post-harvest photos. The black
+  backdrop, overhead setup, coin reference, and fragile traditional-CV detection
+  belong to the prototype, not the target collection requirements. Use machine
+  learning to improve recognition while retaining useful geometric estimation.
+- Before replacing the existing geometric approximation, read
+  `docs/algorithms/cylindrical-approximation-review.md`. Its parameters use the
+  upright fruit crop, not the original photo width. Preserve the owner's reported
+  physical comparisons as empirical evidence; separate recognition failures from
+  geometric errors and evaluate changes against that baseline.
+
 ## Collection And Annotation
 
 - Agronomy graduate students collect images and annotate them. Assume no
@@ -16,6 +28,10 @@
 - Save each fruitlet as a separate region. Distinguish incomplete but identifiable
   fruitlets from regions whose boundaries or instance count cannot be determined.
   Uncertain regions are neither fruitlet instances nor confirmed background.
+- The target measurement contract selects one central primary fruitlet: fully
+  visible, facing the camera, in the longitudinal middle, nearest the projected
+  axis midpoint. Preserve its instance identity separately from missing dimensions;
+  unresolved selection goes to the reviewer. See the architecture for rollout state.
 - Avoid wasting usable data, but favor straightforward exclusion after review
   over substantial custom code to salvage ambiguous supervision. Additional
   careful collection/annotation is acceptable. Exclusion from a training set
@@ -47,11 +63,21 @@
 
 ## Measurement Evidence
 
+- Design experiments backward from the program feature they must support. For
+  each collected label or measurement, identify the consuming output, the same
+  physical object and region, and the comparison that will validate it. Record
+  implemented behavior, proposed behavior, and unvalidated assumptions separately
+  in `docs/architecture.md`; collecting data alone does not complete a feature.
 - Fruit dimensions and whole-fruit fruitlet count are equally important. Evaluate
   their errors and availability independently; completion is not validity.
 - AprilTag 36h11 uses the measured black-square side, excluding the outer white
-  margin. Keep the student protocol simple: a flat tag beside the widest part of
-  the fruit, near it, not in front or behind, and facing the camera.
+  margin. Place its flat face beside the fruit, facing the camera, approximately
+  in the plane through the fruit's longitudinal axis and parallel to the image
+  plane. In a side-view diagram, the tag plane must align with the axis in depth;
+  height near the widest part and parallel orientation alone are insufficient.
+- Collection illustrations carry instructions: use one authentic AprilTag 36h11
+  pattern throughout, and verify spatial placement and mouse-button diagrams
+  against the stated geometry and actual interaction before publication.
 - Treat a tag plane near the fruit axis as an approximation to validate against
   physical measurements, not evidence of recovered 3D shape. Accurate masks and
   tag decoding alone do not establish metric accuracy or unseen fruitlet count.

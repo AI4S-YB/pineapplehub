@@ -4,6 +4,8 @@
 
 *Surface Texture Analysis via Inverse Cylindrical Perspective Correction*
 
+> Reading note (2026-10-19): This document retains the historical algorithm description. The equal `f` and `r` parameters use the upright fruit crop's width and define a virtual projection. Claims of physical accuracy below are not general accuracy guarantees. See the [approximation review](cylindrical-approximation-review.md) for the source, actual contraction, and limits of the reported physical comparisons.
+
 This document provides a mathematically rigorous description of the computer vision pipeline implemented in PineappleHub for measuring pineapple fruitlet geometry. The pipeline is designed to be robust against lighting variations, fruit orientation, and camera distance by combining **physical-scale calibration**, **surface-texture-driven ROI selection**, and **dual-axis cylindrical perspective correction**.
 
 ## Core Assumptions
