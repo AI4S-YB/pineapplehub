@@ -29,16 +29,23 @@
   multi-view matching, manually entered fruit IDs, or student-selected dataset
   splits. Developers retain identity/provenance internally and keep retakes,
   duplicates, crops, and augmentations out of different splits.
-- Ask students to mark visible regions and recorded measurements, not technical
-  training eligibility or estimated occlusion percentages. Use one escalation
-  action for all unresolved cases: refer to the project reviewer.
+- Ask students to mark visible regions, with the limited boundary approximation
+  below, and recorded measurements, not technical training eligibility or estimated
+  occlusion percentages. Use one escalation action for all unresolved cases:
+  refer to the project reviewer.
 - Save each fruitlet as a separate region. Distinguish incomplete but identifiable
   fruitlets from regions whose boundaries or instance count cannot be determined.
   Uncertain regions are neither fruitlet instances nor confirmed background.
-- The target measurement contract selects one central primary fruitlet: fully
-  visible, facing the camera, in the longitudinal middle, nearest the projected
-  axis midpoint. Preserve its instance identity separately from missing dimensions;
-  unresolved selection goes to the reviewer. See the architecture for rollout state.
+- Treat a fruitlet as complete when its main outline is visible, allowing a short
+  boundary segment crossed by a thin tip if the exposed groove ends clearly connect.
+  This is a limited annotation approximation, not full visibility or recovered
+  hidden geometry. Retain attached tissue within the main outline; stop outward
+  thin tips at that outline. Otherwise do not infer hidden boundaries.
+- The target measurement contract selects one central primary fruitlet: complete
+  under that rule, facing the camera, in the longitudinal middle, nearest the
+  projected axis midpoint. Exclude outward thin tips from its measured span; refer
+  uncertain measurement boundaries or selection to the reviewer. Preserve instance
+  identity separately from missing dimensions. See the architecture for rollout state.
 - Avoid wasting usable data, but favor straightforward exclusion after review
   over substantial custom code to salvage ambiguous supervision. Additional
   careful collection/annotation is acceptable. Exclusion from a training set
